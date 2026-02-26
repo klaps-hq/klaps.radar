@@ -3,6 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts --env-file .env --watch"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
