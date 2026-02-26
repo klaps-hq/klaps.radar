@@ -8,6 +8,7 @@ const run = async (): Promise<void> => {
     console.log(
       "Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID to fetch Instagram data."
     );
+
     return;
   }
 
