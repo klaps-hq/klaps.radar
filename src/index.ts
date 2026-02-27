@@ -1,23 +1,8 @@
-import { fetchInstagramMedia } from "./instagram";
-
-const instagramAccessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
-const instagramUserId = process.env.INSTAGRAM_USER_ID;
+import { createScreeningPost } from "./workflows/create-screening-post";
 
 const run = async (): Promise<void> => {
-  if (!instagramAccessToken || !instagramUserId) {
-    console.log(
-      "Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID to fetch Instagram data."
-    );
-
-    return;
-  }
-
-  const mediaItems = await fetchInstagramMedia({
-    accessToken: instagramAccessToken,
-    instagramUserId,
-  });
-
-  console.log(`Fetched ${mediaItems.length} Instagram post(s).`);
+  const candidateDate = Bun.argv[2]?.trim();
+  await createScreeningPost(candidateDate);
 };
 
 run().catch((error: unknown) => {
