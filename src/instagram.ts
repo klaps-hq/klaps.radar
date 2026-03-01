@@ -1,27 +1,8 @@
+import type { InstagramCandidateApiResponse } from "./interfaces/instagram.interface";
 import type {
-  InstagramCandidateApiResponse,
-  InstagramMediaContainerStatusResponse,
-  InstagramMediaCreationResponse,
-  InstagramMediaResponse,
-} from "./interfaces/instagram.interface";
-import { createPublicPostImageUrl } from "./post-image";
-import type {
-  CreateInstagramPostDraftConfig,
   FetchInstagramCandidateConfig,
-  InstagramCandidatePostDraft,
   InstagramCandidateResponse,
-  InstagramCandidateStoryDraft,
-  InstagramConnectionConfig,
-  InstagramMediaItem,
-  PublishInstagramPostDraftConfig,
 } from "./types/instagram.types";
-
-const INSTAGRAM_GRAPH_API_VERSION = "v25.0";
-const INSTAGRAM_GRAPH_API_BASE_URL = `https://graph.instagram.com/${INSTAGRAM_GRAPH_API_VERSION}`;
-const MEDIA_READY_CHECK_INTERVAL_MS = 2000;
-const MEDIA_READY_CHECK_MAX_ATTEMPTS = 15;
-const PUBLISH_RETRY_INTERVAL_MS = 2000;
-const PUBLISH_RETRY_MAX_ATTEMPTS = 3;
 
 const parseJsonSafely = async <T>(response: Response): Promise<T | null> => {
   try {
@@ -31,10 +12,7 @@ const parseJsonSafely = async <T>(response: Response): Promise<T | null> => {
   }
 };
 
-const createInstagramCandidateUrl = (
-  apiUrl: string,
-  date?: string
-): string => {
+const createInstagramCandidateUrl = (apiUrl: string, date?: string): string => {
   const normalizedApiUrl = apiUrl.endsWith("/") ? apiUrl.slice(0, -1) : apiUrl;
   const url = new URL(`${normalizedApiUrl}/instagram/candidate`);
   const dateValue = date?.trim();
@@ -149,6 +127,16 @@ const CONTEXT_TEMPLATES = [
     `Rzadka okazja, żeby zobaczyć ten ${genre.toLowerCase()} na dużym ekranie. ${city}${audio}.`,
   (genre: string, city: string, audio: string) =>
     `${genre} w ${city}${audio}. Kino, nie streaming.`,
+  (genre: string, city: string, audio: string) =>
+    `Wieczór filmowy w ${city}? ${genre}${audio} to dobry wybór.`,
+  (genre: string, city: string, audio: string) =>
+    `${genre} wraca na duży ekran. Sprawdź seans w ${city}${audio}.`,
+  (genre: string, city: string, audio: string) =>
+    `Jeśli ${genre.toLowerCase()} robi największe wrażenie, to tylko w kinie. W${city}${audio}.`,
+  (genre: string, city: string, audio: string) =>
+    `Na ten ${genre.toLowerCase()} warto wyjść z domu. W${city}${audio}.`,
+  (genre: string, city: string, audio: string) =>
+    `${genre} i sala kinowa to idealne połączenie. Widzimy się w ${city}${audio}.`,
 ];
 
 const pickRandom = <T>(items: T[]): T =>
@@ -161,8 +149,7 @@ const buildContextSentence = (
     return "";
   }
 
-  const genreLabel =
-    candidate.movie.genres[0]?.name ?? "Film";
+  const genreLabel = candidate.movie.genres[0]?.name ?? "Film";
   const cityDeclinated =
     candidate.screening.cinema.city.nameDeclinated ??
     candidate.screening.cinema.city.name;
@@ -172,9 +159,7 @@ const buildContextSentence = (
   return template(genreLabel, cityDeclinated, audio);
 };
 
-const buildHashtags = (
-  candidate: InstagramCandidateResponse
-): string => {
+const buildHashtags = (candidate: InstagramCandidateResponse): string => {
   const tags = new Set<string>();
   tags.add("klasykakina");
   tags.add("kinomaniak");
@@ -212,7 +197,9 @@ const buildHashtags = (
 
   tags.add("kinopolskie");
 
-  return Array.from(tags).map((tag) => `#${tag}`).join(" ");
+  return Array.from(tags)
+    .map((tag) => `#${tag}`)
+    .join(" ");
 };
 
 const HASHTAG_SEPARATOR = "\n.\n.\n.\n.\n.\n";
@@ -221,7 +208,9 @@ export const buildStoryInfoFromCandidate = (
   candidate: InstagramCandidateResponse
 ): { title: string; facts: string[] } => {
   if (!candidate.movie || !candidate.screening) {
-    throw new Error("Cannot build story info: candidate payload is incomplete.");
+    throw new Error(
+      "Cannot build story info: candidate payload is incomplete."
+    );
   }
 
   const { movie, screening } = candidate;
@@ -279,157 +268,6 @@ export const buildCaptionFromCandidate = (
   return sections.join("\n");
 };
 
-export const mapCandidateToInstagramPostDraft = async (
-  candidate: InstagramCandidateResponse
-): Promise<InstagramCandidatePostDraft> => {
-  if (!candidate.movie || !candidate.screening) {
-    throw new Error("Candidate is missing movie or screening details.");
-  }
-
-  const posterUrl = candidate.movie.posterUrl ?? candidate.movie.backdropUrl;
-  if (!posterUrl) {
-    throw new Error("Candidate is missing posterUrl and backdropUrl.");
-  }
-
-  const imageUrl = await createPublicPostImageUrl({
-    posterUrl,
-    backdropUrl: candidate.movie.backdropUrl,
-    layout: "post",
-  });
-
-  return {
-    imageUrl,
-    caption: buildCaptionFromCandidate(candidate),
-  };
-};
-
-export const mapCandidateToInstagramStoryDraft = async (
-  candidate: InstagramCandidateResponse
-): Promise<InstagramCandidateStoryDraft> => {
-  if (!candidate.movie || !candidate.screening) {
-    throw new Error("Candidate is missing movie or screening details.");
-  }
-
-  const posterUrl = candidate.movie.posterUrl ?? candidate.movie.backdropUrl;
-  if (!posterUrl) {
-    throw new Error("Candidate is missing posterUrl and backdropUrl.");
-  }
-
-  const imageUrl = await createPublicPostImageUrl({
-    posterUrl,
-    backdropUrl: candidate.movie.backdropUrl,
-    layout: "story",
-    storyInfo: buildStoryInfoFromCandidate(candidate),
-  });
-
-  return { imageUrl };
-};
-
-const createInstagramMediaUrl = (
-  instagramUserId: string,
-  accessToken: string
-) => {
-  const url = new URL(
-    `${INSTAGRAM_GRAPH_API_BASE_URL}/${instagramUserId}/media`
-  );
-
-  url.searchParams.set(
-    "fields",
-    "id,caption,media_type,media_url,permalink,timestamp"
-  );
-
-  url.searchParams.set("access_token", accessToken);
-  return url.toString();
-};
-
-const createInstagramMediaContainerUrl = (instagramUserId: string) =>
-  `${INSTAGRAM_GRAPH_API_BASE_URL}/${instagramUserId}/media`;
-
-const createInstagramMeMediaContainerUrl = () =>
-  `${INSTAGRAM_GRAPH_API_BASE_URL}/me/media`;
-
-const createInstagramMediaPublishUrl = (instagramUserId: string) =>
-  `${INSTAGRAM_GRAPH_API_BASE_URL}/${instagramUserId}/media_publish`;
-
-const createInstagramMediaContainerStatusUrl = (
-  creationId: string,
-  accessToken: string
-): string => {
-  const url = new URL(`${INSTAGRAM_GRAPH_API_BASE_URL}/${creationId}`);
-  url.searchParams.set("fields", "status_code");
-  url.searchParams.set("access_token", accessToken);
-  return url.toString();
-};
-
-const sleep = async (durationMs: number): Promise<void> => {
-  await new Promise((resolve) => setTimeout(resolve, durationMs));
-};
-
-const waitForInstagramMediaContainerReady = async (
-  accessToken: string,
-  creationId: string
-): Promise<void> => {
-  let lastKnownStatusCode = "UNKNOWN";
-  for (
-    let attempt = 1;
-    attempt <= MEDIA_READY_CHECK_MAX_ATTEMPTS;
-    attempt += 1
-  ) {
-    const requestUrl = createInstagramMediaContainerStatusUrl(
-      creationId,
-      accessToken
-    );
-    const response = await fetch(requestUrl);
-    const payload =
-      (await response.json()) as InstagramMediaContainerStatusResponse;
-    if (!response.ok || payload.error) {
-      const errorMessage =
-        payload.error?.message ?? "Unexpected Instagram API error.";
-      throw new Error(`Instagram media status check failed: ${errorMessage}`);
-    }
-    const statusCode = payload.status_code ?? "UNKNOWN";
-    lastKnownStatusCode = statusCode;
-    if (statusCode === "FINISHED") {
-      return;
-    }
-    if (statusCode === "ERROR" || statusCode === "EXPIRED") {
-      throw new Error(
-        `Instagram media container failed with status: ${statusCode}.`
-      );
-    }
-    if (attempt < MEDIA_READY_CHECK_MAX_ATTEMPTS) {
-      await sleep(MEDIA_READY_CHECK_INTERVAL_MS);
-    }
-  }
-  throw new Error(
-    `Instagram media processing timed out. Last status: ${lastKnownStatusCode}.`
-  );
-};
-
-export const fetchInstagramMedia = async (
-  config: InstagramConnectionConfig
-): Promise<InstagramMediaItem[]> => {
-  const requestUrl = createInstagramMediaUrl(
-    config.instagramUserId,
-    config.accessToken
-  );
-
-  const response = await fetch(requestUrl);
-  const payload = (await response.json()) as InstagramMediaResponse;
-
-  if (!response.ok || payload.error) {
-    const errorMessage =
-      payload.error?.message ?? "Unexpected Instagram API error.";
-    throw new Error(`Instagram connection failed: ${errorMessage}`);
-  }
-
-  if (!payload.data) {
-    return [];
-  }
-
-  return payload.data;
-};
-
 export const fetchInstagramCandidate = async (
   config: FetchInstagramCandidateConfig
 ): Promise<InstagramCandidateResponse> => {
@@ -440,142 +278,23 @@ export const fetchInstagramCandidate = async (
       "x-internal-api-key": config.internalApiKey,
     },
   });
-  const payload =
-    (await parseJsonSafely<InstagramCandidateApiResponse>(
-      response
-    )) as InstagramCandidateApiResponse | null;
+  const payload = (await parseJsonSafely<InstagramCandidateApiResponse>(
+    response
+  )) as InstagramCandidateApiResponse | null;
 
   if (!response.ok || payload?.error) {
-    const errorMessage = resolveInternalApiErrorMessage(payload, response.status);
+    const errorMessage = resolveInternalApiErrorMessage(
+      payload,
+      response.status
+    );
     throw new Error(`Instagram candidate fetch failed: ${errorMessage}`);
   }
 
   if (!payload || typeof payload.publish !== "boolean") {
-    throw new Error("Instagram candidate fetch failed: invalid payload format.");
+    throw new Error(
+      "Instagram candidate fetch failed: invalid payload format."
+    );
   }
 
   return payload;
-};
-
-export const createInstagramPostDraft = async (
-  config: CreateInstagramPostDraftConfig
-): Promise<string> => {
-  const requestUrl = createInstagramMediaContainerUrl(config.instagramUserId);
-  const body = new URLSearchParams({
-    image_url: config.imageUrl,
-    access_token: config.accessToken,
-  });
-  if (config.caption.trim().length > 0) {
-    body.set("caption", config.caption);
-  }
-  const response = await fetch(requestUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body.toString(),
-  });
-  const payload = (await response.json()) as InstagramMediaCreationResponse;
-  if (!response.ok || payload.error) {
-    const errorMessage =
-      payload.error?.message ?? "Unexpected Instagram API error.";
-    throw new Error(`Instagram draft creation failed: ${errorMessage}`);
-  }
-  if (!payload.id) {
-    throw new Error("Instagram draft creation failed: missing creation id.");
-  }
-  return payload.id;
-};
-
-export const createInstagramStoryDraft = async (
-  config: InstagramConnectionConfig & { imageUrl: string }
-): Promise<string> => {
-  const attempts = [
-    {
-      name: "/me with STORIES",
-      requestUrl: createInstagramMeMediaContainerUrl(),
-      mediaType: "STORIES",
-    },
-    {
-      name: "/{user_id} with STORIES",
-      requestUrl: createInstagramMediaContainerUrl(config.instagramUserId),
-      mediaType: "STORIES",
-    },
-    {
-      name: "/me with STORY",
-      requestUrl: createInstagramMeMediaContainerUrl(),
-      mediaType: "STORY",
-    },
-  ] as const;
-
-  const errors: string[] = [];
-
-  for (const attempt of attempts) {
-    const body = new URLSearchParams({
-      image_url: config.imageUrl,
-      media_type: attempt.mediaType,
-      access_token: config.accessToken,
-    });
-    const response = await fetch(attempt.requestUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    });
-    const payload = (await response.json()) as InstagramMediaCreationResponse;
-    if (response.ok && payload.id) {
-      return payload.id;
-    }
-    const errorMessage =
-      payload.error?.message ?? "Unexpected Instagram API error.";
-    errors.push(`${attempt.name}: ${errorMessage}`);
-  }
-
-  throw new Error(
-    `Instagram story draft creation failed. Tried fallbacks: ${errors.join(
-      " | "
-    )}`
-  );
-};
-
-export const publishInstagramPostDraft = async (
-  config: PublishInstagramPostDraftConfig
-): Promise<string> => {
-  await waitForInstagramMediaContainerReady(
-    config.accessToken,
-    config.creationId
-  );
-
-  const requestUrl = createInstagramMediaPublishUrl(config.instagramUserId);
-  const body = new URLSearchParams({
-    creation_id: config.creationId,
-    access_token: config.accessToken,
-  });
-
-  for (let attempt = 1; attempt <= PUBLISH_RETRY_MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    });
-    const payload = (await response.json()) as InstagramMediaCreationResponse;
-    if (response.ok && payload.id) {
-      return payload.id;
-    }
-    const errorMessage =
-      payload.error?.message ?? "Unexpected Instagram API error.";
-    const shouldRetry =
-      errorMessage.includes("Media ID is not available") &&
-      attempt < PUBLISH_RETRY_MAX_ATTEMPTS;
-    if (!shouldRetry) {
-      throw new Error(`Instagram post publish failed: ${errorMessage}`);
-    }
-    await sleep(PUBLISH_RETRY_INTERVAL_MS);
-  }
-  throw new Error(
-    "Instagram post publish failed: media id was unavailable after retries."
-  );
 };

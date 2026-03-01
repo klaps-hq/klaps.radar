@@ -4,15 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun --env-file .env src/scripts/post/schedule.ts",
-    "start:post": "bun --env-file .env src/scripts/post/schedule.ts",
-    "start:story": "bun --env-file .env src/scripts/story/schedule.ts",
-    "create:screening-post": "bun --env-file .env src/scripts/post/create.ts",
-    "preview:screening-post": "bun --env-file .env src/scripts/post/preview.ts",
-    "create:screening-story": "bun --env-file .env src/scripts/story/create.ts",
-    "preview:screening-story": "bun --env-file .env src/scripts/story/preview.ts",
-    "create:test-post": "bun run create:screening-post",
-    "preview:post": "bun run preview:screening-post"
+    "start": "bun --env-file .env src/index.ts",
+    "preview:description": "bun --env-file .env src/index.ts",
+    "render:instagram-post": "bun --env-file .env src/scripts/render/instagram-post.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -21,7 +15,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "node-cron": "^4.2.1",
-    "sharp": "^0.34.5"
+    "puppeteer": "^24.37.5"
   }
 }

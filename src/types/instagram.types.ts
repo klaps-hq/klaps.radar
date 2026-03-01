@@ -1,26 +1,3 @@
-export type InstagramMediaItem = {
-  id: string;
-  caption?: string;
-  media_type: string;
-  media_url?: string;
-  permalink?: string;
-  timestamp: string;
-};
-
-export type InstagramConnectionConfig = {
-  accessToken: string;
-  instagramUserId: string;
-};
-
-export type CreateInstagramPostDraftConfig = InstagramConnectionConfig & {
-  imageUrl: string;
-  caption: string;
-};
-
-export type PublishInstagramPostDraftConfig = InstagramConnectionConfig & {
-  creationId: string;
-};
-
 export type InstagramCandidateReason =
   | "HIGH_QUALITY_CANDIDATE"
   | "NO_HIGH_QUALITY_CANDIDATE"
@@ -85,15 +62,6 @@ export type InstagramCandidateResponse = {
   movie?: InstagramCandidateMovie;
   screening?: InstagramCandidateScreening;
   meta?: InstagramCandidateMeta;
-};
-
-export type InstagramCandidatePostDraft = {
-  imageUrl: string;
-  caption: string;
-};
-
-export type InstagramCandidateStoryDraft = {
-  imageUrl: string;
 };
 
 export type FetchInstagramCandidateConfig = {
