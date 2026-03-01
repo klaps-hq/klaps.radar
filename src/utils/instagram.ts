@@ -1,8 +1,8 @@
-import type { InstagramCandidateApiResponse } from "./interfaces/instagram.interface";
+import type { InstagramCandidateApiResponse } from "../interfaces/instagram.interface";
 import type {
   FetchInstagramCandidateConfig,
   InstagramCandidateResponse,
-} from "./types/instagram.types";
+} from "../types/instagram.types";
 
 const parseJsonSafely = async <T>(response: Response): Promise<T | null> => {
   try {
@@ -297,4 +297,192 @@ export const fetchInstagramCandidate = async (
   }
 
   return payload;
+};
+
+type PublishInstagramImagePostConfig = {
+  instagramUserId: string;
+  accessToken: string;
+  imageUrl: string;
+  caption: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+};
+
+type PublishInstagramImagePostResult = {
+  creationId: string;
+  mediaId: string;
+};
+
+const GRAPH_API_VERSION = "v25.0";
+const GRAPH_API_BASE_URL = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
+const DEFAULT_PUBLISH_TIMEOUT_MS = 120000;
+const DEFAULT_POLL_INTERVAL_MS = 2000;
+
+type GraphApiErrorResponse = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+};
+
+const buildGraphApiUrl = (path: string): string =>
+  `${GRAPH_API_BASE_URL}/${path.replace(/^\//, "")}`;
+
+const resolveGraphApiErrorMessage = (
+  payload: GraphApiErrorResponse | null,
+  statusCode: number
+): string => {
+  if (!payload?.error) {
+    return `Instagram Graph API request failed with status ${statusCode}.`;
+  }
+
+  const pieces = [
+    payload.error.message,
+    payload.error.type ? `type=${payload.error.type}` : "",
+    payload.error.code ? `code=${payload.error.code}` : "",
+    payload.error.error_subcode ? `subcode=${payload.error.error_subcode}` : "",
+  ].filter(
+    (piece): piece is string => typeof piece === "string" && piece.length > 0
+  );
+
+  if (pieces.length === 0) {
+    return `Instagram Graph API request failed with status ${statusCode}.`;
+  }
+
+  return pieces.join(" | ");
+};
+
+const postGraphApiForm = async <TResponse>(
+  path: string,
+  body: Record<string, string>
+): Promise<TResponse> => {
+  const response = await fetch(buildGraphApiUrl(path), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(body),
+  });
+
+  const payload = (await parseJsonSafely<TResponse & GraphApiErrorResponse>(
+    response
+  )) as (TResponse & GraphApiErrorResponse) | null;
+
+  if (!response.ok || payload?.error) {
+    const errorMessage = resolveGraphApiErrorMessage(payload, response.status);
+    throw new Error(errorMessage);
+  }
+
+  if (!payload) {
+    throw new Error("Instagram Graph API request failed: empty response.");
+  }
+
+  return payload;
+};
+
+const getGraphApiJson = async <TResponse>(path: string): Promise<TResponse> => {
+  const response = await fetch(buildGraphApiUrl(path), {
+    method: "GET",
+  });
+
+  const payload = (await parseJsonSafely<TResponse & GraphApiErrorResponse>(
+    response
+  )) as (TResponse & GraphApiErrorResponse) | null;
+
+  if (!response.ok || payload?.error) {
+    const errorMessage = resolveGraphApiErrorMessage(payload, response.status);
+    throw new Error(errorMessage);
+  }
+
+  if (!payload) {
+    throw new Error("Instagram Graph API request failed: empty response.");
+  }
+
+  return payload;
+};
+
+const waitForContainerReady = async (
+  creationId: string,
+  accessToken: string,
+  timeoutMs: number,
+  pollIntervalMs: number
+): Promise<void> => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const statusPayload = await getGraphApiJson<{
+      status_code?: "IN_PROGRESS" | "FINISHED" | "ERROR" | string;
+      status?: "IN_PROGRESS" | "FINISHED" | "ERROR" | string;
+    }>(
+      `${creationId}?fields=status_code,status&access_token=${encodeURIComponent(
+        accessToken
+      )}`
+    );
+
+    const status = statusPayload.status_code ?? statusPayload.status;
+    if (status === "FINISHED") {
+      return;
+    }
+
+    if (status === "ERROR") {
+      throw new Error(
+        `Instagram media container ${creationId} finished with ERROR status.`
+      );
+    }
+
+    await Bun.sleep(pollIntervalMs);
+  }
+
+  throw new Error(
+    `Timed out waiting for Instagram media container ${creationId} to be ready.`
+  );
+};
+
+export const publishInstagramImagePost = async (
+  config: PublishInstagramImagePostConfig
+): Promise<PublishInstagramImagePostResult> => {
+  const timeoutMs = config.timeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS;
+  const pollIntervalMs = config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+  const createPayload = await postGraphApiForm<{ id?: string }>(
+    `${config.instagramUserId}/media`,
+    {
+      image_url: config.imageUrl,
+      caption: config.caption,
+      access_token: config.accessToken.trim(),
+    }
+  );
+
+  const creationId = createPayload.id;
+  if (!creationId) {
+    throw new Error("Instagram media container creation failed: missing id.");
+  }
+
+  await waitForContainerReady(
+    creationId,
+    config.accessToken,
+    timeoutMs,
+    pollIntervalMs
+  );
+
+  const publishPayload = await postGraphApiForm<{ id?: string }>(
+    `${config.instagramUserId}/media_publish`,
+    {
+      creation_id: creationId,
+      access_token: config.accessToken.trim(),
+    }
+  );
+
+  const mediaId = publishPayload.id;
+  if (!mediaId) {
+    throw new Error("Instagram media publish failed: missing media id.");
+  }
+
+  return {
+    creationId,
+    mediaId,
+  };
 };

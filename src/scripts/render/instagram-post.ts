@@ -1,4 +1,4 @@
-import { fetchInstagramCandidate } from "../../instagram";
+import { fetchInstagramCandidate } from "../../utils/instagram";
 import {
   buildInstagramFeedPostPayloadFromCandidate,
   generateAndSaveInstagramFeedPostImage,
@@ -17,7 +17,9 @@ const run = async (): Promise<void> => {
   });
 
   console.log(
-    `Candidate: publish=${candidate.publish}, reason=${candidate.reason}, score=${candidate.score ?? "n/a"}`
+    `Candidate: publish=${candidate.publish}, reason=${
+      candidate.reason
+    }, score=${candidate.score ?? "n/a"}`
   );
 
   if (!candidate.publish) {

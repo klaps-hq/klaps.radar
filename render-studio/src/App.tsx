@@ -2,7 +2,7 @@ import { resolveTemplate } from "./templates/registry";
 import {
   parseTemplatePayload,
   readTemplateStateFromSearchParams,
-} from "./templates/url-template-state";
+} from "./utils/url-template-state";
 
 function App() {
   const templateState = readTemplateStateFromSearchParams(
@@ -20,13 +20,16 @@ function App() {
   }
 
   const TemplateComponent = template.component;
+  const screeningDetail = parseTemplatePayload(templateState.rawPayload);
 
-  const templatePayload = parseTemplatePayload(templateState.rawPayload);
+  if (!screeningDetail) {
+    return <div>Missing movie or screening</div>;
+  }
 
   if (templateState.captureMode) {
     return (
       <div data-template-ready="true">
-        <TemplateComponent {...templatePayload} />
+        <TemplateComponent {...screeningDetail} />
       </div>
     );
   }
@@ -35,7 +38,7 @@ function App() {
     <main className="min-h-screen bg-zinc-950 px-6 py-10">
       <section className="mx-auto w-fit">
         <div className="origin-top scale-[0.34] rounded-xl border border-zinc-800 shadow-2xl shadow-black/70">
-          <TemplateComponent {...templatePayload} />
+          <TemplateComponent {...screeningDetail} />
         </div>
       </section>
     </main>

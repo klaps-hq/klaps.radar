@@ -8,6 +8,30 @@ export type InstagramEnv = {
   instagramUserId: string;
 };
 
+const normalizeEnvValue = (value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const unquoted = trimmed.replace(/^['"]|['"]$/g, "");
+  return unquoted.trim();
+};
+
+const normalizeAccessToken = (value: string | undefined): string | undefined => {
+  const normalized = normalizeEnvValue(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  // Accept either raw token or accidentally prefixed "Bearer <token>".
+  return normalized.replace(/^Bearer\s+/i, "").trim();
+};
+
 const getMissingVars = (
   vars: Record<string, string | undefined>
 ): string[] => {
@@ -17,8 +41,8 @@ const getMissingVars = (
 };
 
 export const resolveCandidateApiEnv = (): CandidateApiEnv => {
-  const apiUrl = process.env.API_URL;
-  const internalApiKey = process.env.INTERNAL_API_KEY;
+  const apiUrl = normalizeEnvValue(process.env.API_URL);
+  const internalApiKey = normalizeEnvValue(process.env.INTERNAL_API_KEY);
   const missing = getMissingVars({
     API_URL: apiUrl,
     INTERNAL_API_KEY: internalApiKey,
@@ -35,8 +59,8 @@ export const resolveCandidateApiEnv = (): CandidateApiEnv => {
 };
 
 export const resolveInstagramEnv = (): InstagramEnv => {
-  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
-  const instagramUserId = process.env.INSTAGRAM_USER_ID;
+  const accessToken = normalizeAccessToken(process.env.INSTAGRAM_ACCESS_TOKEN);
+  const instagramUserId = normalizeEnvValue(process.env.INSTAGRAM_USER_ID);
   const missing = getMissingVars({
     INSTAGRAM_ACCESS_TOKEN: accessToken,
     INSTAGRAM_USER_ID: instagramUserId,
