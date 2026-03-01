@@ -1,6 +1,21 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+export const POLISH_MONTHS = [
+  "stycznia",
+  "lutego",
+  "marca",
+  "kwietnia",
+  "maja",
+  "czerwca",
+  "lipca",
+  "sierpnia",
+  "września",
+  "października",
+  "listopada",
+  "grudnia",
+] as const;
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
