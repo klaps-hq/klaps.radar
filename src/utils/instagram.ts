@@ -12,13 +12,26 @@ const parseJsonSafely = async <T>(response: Response): Promise<T | null> => {
   }
 };
 
-const createInstagramCandidateUrl = (apiUrl: string, date?: string): string => {
+const createInstagramCandidateUrl = (
+  apiUrl: string,
+  platform: string,
+  date?: string,
+  minScore?: number
+): string => {
   const normalizedApiUrl = apiUrl.endsWith("/") ? apiUrl.slice(0, -1) : apiUrl;
-  const url = new URL(`${normalizedApiUrl}/instagram/candidate`);
+  const url = new URL(`${normalizedApiUrl}/socials/candidate`);
   const dateValue = date?.trim();
+
   if (dateValue) {
     url.searchParams.set("date", dateValue);
   }
+
+  url.searchParams.set("platform", platform);
+
+  if (minScore) {
+    url.searchParams.set("minScore", minScore.toString());
+  }
+
   return url.toString();
 };
 
@@ -271,7 +284,14 @@ export const buildCaptionFromCandidate = (
 export const fetchInstagramCandidate = async (
   config: FetchInstagramCandidateConfig
 ): Promise<InstagramCandidateResponse> => {
-  const requestUrl = createInstagramCandidateUrl(config.apiUrl, config.date);
+  const requestUrl = createInstagramCandidateUrl(
+    config.apiUrl,
+    config.platform,
+    config.date,
+    config.minScore
+  );
+
+  console.log(requestUrl);
 
   const response = await fetch(requestUrl, {
     method: "GET",

@@ -20,6 +20,7 @@ const run = async (): Promise<void> => {
     internalApiKey,
     date: candidateDate,
     minScore: 20,
+    platform: "INSTAGRAM",
   });
 
   console.log(

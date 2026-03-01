@@ -66,8 +66,9 @@ const InstagramStoryTemplate: ComponentType<IScreeningDetail> = ({
           <p className="tracking-wide text-white/80 text-4xl">
             {dateLabel}, godz. {screening.time}
           </p>
+          <p className="text-white/45 text-3xl">{screening.cinema.name}</p>
           <p className="text-white/45 text-3xl">
-            {screening.cinema.name}, {screening.cinema.city.name}
+            {screening.cinema.street}, {screening.cinema.city.name}
           </p>
         </div>
       </div>

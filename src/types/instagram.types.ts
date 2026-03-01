@@ -68,5 +68,6 @@ export type FetchInstagramCandidateConfig = {
   apiUrl: string;
   internalApiKey: string;
   date?: string;
+  platform: "INSTAGRAM" | "FACEBOOK" | "X" | "THREADS";
   minScore?: number;
 };
