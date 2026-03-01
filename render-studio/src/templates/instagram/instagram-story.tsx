@@ -50,56 +50,27 @@ const InstagramStoryTemplate: ComponentType<IScreeningDetail> = ({
           />
         </div>
 
-        <div className="mt-10 flex flex-col items-center text-center">
-          <h2
-            className="font-bold tracking-tight leading-none"
-            style={{ fontSize: 52 }}
-          >
+        <div className="mt-10 flex flex-col items-center text-center gap-6">
+          <h2 className="font-bold tracking-tight leading-none text-8xl">
             {movie.title}
           </h2>
 
           {genresLabel && (
-            <p
-              className="mt-3 tracking-widest uppercase text-white/50"
-              style={{ fontSize: 22 }}
-            >
+            <p className="tracking-widest uppercase text-white/50 text-4xl">
               {movie.productionYear} &middot; {genresLabel}
             </p>
           )}
 
-          <div
-            className="mt-6 h-1 bg-[#90030c]"
-            style={{ width: 80 }}
-            aria-hidden="true"
-          />
+          <div className="h-1 bg-[#90030c] w-20" aria-hidden="true" />
 
-          <p
-            className="mt-6 tracking-wide text-white/80"
-            style={{ fontSize: 28 }}
-          >
+          <p className="tracking-wide text-white/80 text-4xl">
             {dateLabel}, godz. {screening.time}
           </p>
-          <p className="mt-2 text-white/45" style={{ fontSize: 24 }}>
+          <p className="text-white/45 text-3xl">
             {screening.cinema.name}, {screening.cinema.city.name}
           </p>
         </div>
       </div>
-
-      <svg
-        className="absolute inset-0 w-full h-full z-20 pointer-events-none"
-        style={{ opacity: 0.04, mixBlendMode: "overlay" }}
-        aria-hidden="true"
-      >
-        <filter id="grain">
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.65"
-            numOctaves="3"
-            stitchTiles="stitch"
-          />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#grain)" />
-      </svg>
 
       <Watermark className="z-30" />
     </article>

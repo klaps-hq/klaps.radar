@@ -50,36 +50,23 @@ const InstagramPostTemplate: ComponentType<IScreeningDetail> = ({
           />
         </div>
 
-        <div className="mt-8 flex flex-col items-center text-center">
-          <h2
-            className="font-bold tracking-tight leading-none"
-            style={{ fontSize: 52 }}
-          >
+        <div className="mt-10 flex flex-col items-center text-center gap-5">
+          <h2 className="text-6xl font-bold tracking-tight leading-none">
             {movie.title}
           </h2>
 
           {genresLabel && (
-            <p
-              className="mt-3 tracking-widest uppercase text-white/50"
-              style={{ fontSize: 22 }}
-            >
+            <p className="text-4xl tracking-widest uppercase text-white/50">
               {movie.productionYear} &middot; {genresLabel}
             </p>
           )}
 
-          <div
-            className="mt-5 h-1 bg-[#90030c]"
-            style={{ width: 80 }}
-            aria-hidden="true"
-          />
+          <div className="h-1 bg-[#90030c] w-20" aria-hidden="true" />
 
-          <p
-            className="mt-5 tracking-wide text-white/80"
-            style={{ fontSize: 28 }}
-          >
+          <p className="text-4xl tracking-wide text-white/80">
             {dateLabel}, godz. {screening.time}
           </p>
-          <p className="mt-2 text-white/45" style={{ fontSize: 24 }}>
+          <p className="text-3xl text-white/45">
             {screening.cinema.name}, {screening.cinema.city.name}
           </p>
         </div>
