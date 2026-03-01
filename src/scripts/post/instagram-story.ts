@@ -1,15 +1,14 @@
 import {
-  buildCaptionFromCandidate,
   fetchInstagramCandidate,
-  publishInstagramImagePost,
+  publishInstagramStory,
 } from "../../utils/instagram";
 import { createPublicPostImageUrl } from "../../render/post-image";
 import {
   resolveCandidateApiEnv,
   resolveInstagramEnv,
 } from "../../utils/environment";
-import { buildInstagramFeedPostPayloadFromCandidate } from "../../render/platforms/instagram";
-import { INSTAGRAM_POST } from "../../constants";
+import { buildInstagramStoryPayloadFromCandidate } from "../../render/platforms/instagram-story";
+import { INSTAGRAM_STORY } from "../../constants";
 
 const run = async (): Promise<void> => {
   const candidateDate = Bun.argv[2]?.trim();
@@ -20,7 +19,7 @@ const run = async (): Promise<void> => {
     apiUrl,
     internalApiKey,
     date: candidateDate,
-    minScore: 60,
+    minScore: 20,
   });
 
   console.log(
@@ -34,28 +33,25 @@ const run = async (): Promise<void> => {
     return;
   }
 
-  const payload = buildInstagramFeedPostPayloadFromCandidate(candidate);
+  const payload = buildInstagramStoryPayloadFromCandidate(candidate);
   const imageUrl = await createPublicPostImageUrl({
-    templateId: INSTAGRAM_POST.TEMPLATE_KEY,
+    templateId: INSTAGRAM_STORY.TEMPLATE_KEY,
     payload,
   });
 
-  const caption = buildCaptionFromCandidate(candidate);
-
-  const publishResult = await publishInstagramImagePost({
+  const publishResult = await publishInstagramStory({
     instagramUserId,
     accessToken,
     imageUrl,
-    caption,
   });
 
   console.log(`Uploaded image URL: ${imageUrl}`);
   console.log(
-    `Instagram post published. creationId=${publishResult.creationId}, mediaId=${publishResult.mediaId}`
+    `Instagram story published. creationId=${publishResult.creationId}, mediaId=${publishResult.mediaId}`
   );
 };
 
 run().catch((error: unknown) => {
-  console.error("Instagram post publish failed:", error);
+  console.error("Instagram story publish failed:", error);
   process.exit(1);
 });

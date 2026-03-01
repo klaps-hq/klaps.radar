@@ -7,7 +7,9 @@
     "start": "bun --env-file .env src/index.ts",
     "preview:description": "bun --env-file .env src/index.ts",
     "render:instagram-post": "bun --env-file .env src/scripts/render/instagram-post.ts",
-    "post:instagram": "bun --env-file .env src/scripts/post/instagram-post.ts"
+    "render:instagram-story": "bun --env-file .env src/scripts/render/instagram-story.ts",
+    "post:instagram": "bun --env-file .env src/scripts/post/instagram-post.ts",
+    "post:instagram-story": "bun --env-file .env src/scripts/post/instagram-story.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

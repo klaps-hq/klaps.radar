@@ -1,11 +1,16 @@
 import InstagramPostTemplate from "./instagram/instagram-post";
+import InstagramStoryTemplate from "./instagram/instagram-story";
 import type { TemplateDefinition } from "../types";
-import { INSTAGRAM_POST } from "../../../src/constants";
+import { INSTAGRAM_POST, INSTAGRAM_STORY } from "../../../src/constants";
 
 export const TEMPLATE_REGISTRY: TemplateDefinition[] = [
   {
     key: INSTAGRAM_POST.TEMPLATE_KEY,
     component: InstagramPostTemplate,
+  },
+  {
+    key: INSTAGRAM_STORY.TEMPLATE_KEY,
+    component: InstagramStoryTemplate,
   },
 ];
 

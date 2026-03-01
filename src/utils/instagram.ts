@@ -272,12 +272,14 @@ export const fetchInstagramCandidate = async (
   config: FetchInstagramCandidateConfig
 ): Promise<InstagramCandidateResponse> => {
   const requestUrl = createInstagramCandidateUrl(config.apiUrl, config.date);
+
   const response = await fetch(requestUrl, {
     method: "GET",
     headers: {
       "x-internal-api-key": config.internalApiKey,
     },
   });
+
   const payload = (await parseJsonSafely<InstagramCandidateApiResponse>(
     response
   )) as InstagramCandidateApiResponse | null;
@@ -439,6 +441,65 @@ const waitForContainerReady = async (
   throw new Error(
     `Timed out waiting for Instagram media container ${creationId} to be ready.`
   );
+};
+
+type PublishInstagramStoryConfig = {
+  instagramUserId: string;
+  accessToken: string;
+  imageUrl: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+};
+
+type PublishInstagramStoryResult = {
+  creationId: string;
+  mediaId: string;
+};
+
+export const publishInstagramStory = async (
+  config: PublishInstagramStoryConfig
+): Promise<PublishInstagramStoryResult> => {
+  const timeoutMs = config.timeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS;
+  const pollIntervalMs = config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+  const createPayload = await postGraphApiForm<{ id?: string }>(
+    `${config.instagramUserId}/media`,
+    {
+      image_url: config.imageUrl,
+      media_type: "STORIES",
+      access_token: config.accessToken.trim(),
+    }
+  );
+
+  const creationId = createPayload.id;
+  if (!creationId) {
+    throw new Error("Instagram story container creation failed: missing id.");
+  }
+
+  await waitForContainerReady(
+    creationId,
+    config.accessToken,
+    timeoutMs,
+    pollIntervalMs
+  );
+
+  const publishPayload = await postGraphApiForm<{ id?: string }>(
+    `${config.instagramUserId}/media_publish`,
+    {
+      creation_id: creationId,
+      access_token: config.accessToken.trim(),
+    }
+  );
+
+  const mediaId = publishPayload.id;
+  if (!mediaId) {
+    throw new Error("Instagram story publish failed: missing media id.");
+  }
+
+  return {
+    creationId,
+    mediaId,
+  };
 };
 
 export const publishInstagramImagePost = async (

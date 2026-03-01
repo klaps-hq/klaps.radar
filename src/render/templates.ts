@@ -4,7 +4,7 @@ import type {
   TemplateRenderPayload,
 } from "./core";
 import { renderImage, saveImage } from "./core";
-import { INSTAGRAM_POST } from "../constants";
+import { INSTAGRAM_POST, INSTAGRAM_STORY } from "../constants";
 
 export type TemplateDefinition = {
   key: string;
@@ -22,6 +22,11 @@ export const TEMPLATE_DEFINITIONS = {
   [INSTAGRAM_POST.TEMPLATE_KEY]: {
     key: INSTAGRAM_POST.TEMPLATE_KEY,
     canvasSize: INSTAGRAM_POST.CANVAS_SIZE,
+    captureMode: true,
+  },
+  [INSTAGRAM_STORY.TEMPLATE_KEY]: {
+    key: INSTAGRAM_STORY.TEMPLATE_KEY,
+    canvasSize: INSTAGRAM_STORY.CANVAS_SIZE,
     captureMode: true,
   },
 } as const satisfies Record<string, TemplateDefinition>;

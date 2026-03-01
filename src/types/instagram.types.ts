@@ -68,4 +68,5 @@ export type FetchInstagramCandidateConfig = {
   apiUrl: string;
   internalApiKey: string;
   date?: string;
+  minScore?: number;
 };
