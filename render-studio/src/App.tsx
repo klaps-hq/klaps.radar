@@ -23,7 +23,11 @@ function App() {
   const screeningDetail = parseTemplatePayload(templateState.rawPayload);
 
   if (!screeningDetail) {
-    return <div>Missing movie or screening</div>;
+    return (
+      <div data-template-ready="true" data-template-status="error">
+        Missing movie or screening
+      </div>
+    );
   }
 
   if (templateState.captureMode) {

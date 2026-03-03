@@ -20,14 +20,13 @@ const isScreeningPayload = (value: unknown): value is IScreening => {
   }
 
   const cinema = value.cinema;
-  if (!isObjectRecord(cinema.city)) {
+  if (!isObjectRecord(cinema.city) || typeof cinema.city.name !== "string") {
     return false;
   }
 
   return (
     typeof value.id === "number" &&
     typeof value.date === "string" &&
-    typeof value.time === "string" &&
     typeof cinema.name === "string"
   );
 };
@@ -50,9 +49,41 @@ export const parseTemplatePayload = (
       return null;
     }
 
+    const movie = parsed.movie as unknown as Record<string, unknown>;
+    const normalizedMovie: IMovie = {
+      ...movie,
+      genres: Array.isArray(movie.genres) ? movie.genres : [],
+    } as IMovie;
+
+    const screening = parsed.screening as Partial<IScreening> & {
+      date: string;
+      cinema: { name: string; city: { name: string }; street?: string | null };
+    };
+    const normalizedScreening: IScreening = {
+      ...screening,
+      id: screening.id ?? 0,
+      date: screening.date,
+      time:
+        screening.time ??
+        (() => {
+          const dateStr = screening.date;
+          if (typeof dateStr === "string" && dateStr.includes("T")) {
+            const timePart = dateStr.split("T")[1];
+            return timePart?.slice(0, 5) ?? "–";
+          }
+          return "–";
+        })(),
+      dateTime: screening.dateTime ?? screening.date,
+      ticketUrl: screening.ticketUrl ?? null,
+      isDubbing: screening.isDubbing ?? false,
+      isSubtitled: screening.isSubtitled ?? false,
+      cinema: screening.cinema as IScreening["cinema"],
+      movie: screening.movie as IScreening["movie"],
+    };
+
     return {
-      movie: parsed.movie,
-      screening: parsed.screening,
+      movie: normalizedMovie,
+      screening: normalizedScreening,
     };
   } catch {
     return null;

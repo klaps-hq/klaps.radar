@@ -24,7 +24,7 @@ export type RenderImageOptions = {
   canvasSize?: CanvasSize;
 };
 
-const DEFAULT_RENDER_STUDIO_URL = "http://127.0.0.1:5173";
+const DEFAULT_RENDER_STUDIO_URL = "http://127.0.0.1:6543";
 const DEFAULT_CANVAS_SIZE: CanvasSize = { width: 1080, height: 1350 };
 
 const CHROME_PROFILE_PREFIX = "puppeteer_dev_chrome_profile-";
@@ -112,7 +112,7 @@ export const renderImage = async (
     options?.renderStudioUrl ??
     process.env.RENDER_STUDIO_URL ??
     DEFAULT_RENDER_STUDIO_URL;
-  const timeoutMs = options?.timeoutMs ?? 15000;
+  const timeoutMs = options?.timeoutMs ?? 30000;
   const canvasSize = options?.canvasSize ?? DEFAULT_CANVAS_SIZE;
   const captureMode = options?.captureMode ?? true;
   const pageUrl = buildRenderStudioTemplateUrl(
@@ -125,6 +125,15 @@ export const renderImage = async (
   let browser: Browser | undefined;
 
   try {
+    const healthCheck = await fetch(renderStudioUrl, {
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => null);
+    if (!healthCheck?.ok) {
+      throw new Error(
+        `Render studio not reachable at ${renderStudioUrl}. Start it with: cd render-studio && bun run dev`
+      );
+    }
+
     browser = await puppeteer.launch({
       headless: true,
       userDataDir: profileDirectory,
@@ -133,9 +142,31 @@ export const renderImage = async (
     const page = await browser.newPage();
     await page.setViewport({ ...canvasSize, deviceScaleFactor: 1 });
     await page.goto(pageUrl, { waitUntil: "networkidle2", timeout: timeoutMs });
-    await page.waitForSelector("[data-template-ready='true']", {
-      timeout: timeoutMs,
-    });
+    let readyElement;
+    try {
+      readyElement = await page.waitForSelector(
+        "[data-template-ready='true']",
+        { timeout: timeoutMs }
+      );
+    } catch (err) {
+      const errorEl = await page.$("[data-template-status='error']").catch(() => null);
+      const errorText = errorEl
+        ? await errorEl.evaluate((el) => el.textContent?.trim() ?? "Unknown error").catch(() => "Unknown error")
+        : "Template did not become ready in time. Ensure render-studio is running (cd render-studio && bun run dev) and the template payload is valid.";
+      await errorEl?.dispose();
+      throw new Error(`Waiting for template ready failed: ${errorText}`, { cause: err });
+    }
+
+    const templateStatus = await readyElement?.evaluate(
+      (el) => el.getAttribute("data-template-status")
+    );
+    if (templateStatus === "error") {
+      const errorText = await page.evaluate(
+        () => document.querySelector("[data-template-ready='true']")?.textContent?.trim() ?? "Unknown error"
+      );
+      throw new Error(`Template render failed: ${errorText}`);
+    }
+
     await waitForAllImagesToSettle(page, timeoutMs);
 
     const screenshot = await page.screenshot({
