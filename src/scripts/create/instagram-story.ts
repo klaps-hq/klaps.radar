@@ -5,7 +5,7 @@ const main = async () => {
   const dateTo = Bun.argv[3]?.trim();
 
   if (!dateFrom || !dateTo) {
-    console.error("Usage: create:instagram-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]");
+    console.error("Usage: create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]");
     process.exit(1);
   }
 
@@ -14,7 +14,7 @@ const main = async () => {
   const numberOfCandidates = parseInt(Bun.argv[4]?.trim() || "30", 10);
   const minScore = parseInt(Bun.argv[5]?.trim() || "30", 10);
 
-  await createInstagramMedia("instagram_post", {
+  await createInstagramMedia("instagram_story", {
     dateFrom,
     dateTo,
     minScore,

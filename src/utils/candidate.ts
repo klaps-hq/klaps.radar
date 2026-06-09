@@ -1,6 +1,7 @@
 import type {
   FetchCandidateConfig,
   FetchCandidateResponse,
+  Platform,
 } from "../types/types";
 import { API_URL, INTERNAL_API_KEY } from "../constants/env";
 
@@ -43,15 +44,16 @@ export const fetchCandidate = async (
   return response.json();
 };
 
-export const markCandidateAsPublished = async (
+const socialsAction = async (
+  action: "reserve" | "publish",
   screeningId: number,
-  platform: "instagram_post" | "instagram_story"
+  platform: Platform
 ) => {
   if (!INTERNAL_API_KEY) {
     throw new Error("INTERNAL_API_KEY is not set");
   }
 
-  const response = await fetch(`${API_URL}/socials/publish`, {
+  const response = await fetch(`${API_URL}/socials/${action}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -64,9 +66,20 @@ export const markCandidateAsPublished = async (
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to mark candidate as published: ${error.message}`);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      `Failed to ${action} candidate: ${error.message ?? response.statusText}`
+    );
   }
-
-  return response.json();
 };
+
+// Creates the socials_posts row (published: false). Acts as a lock: once a
+// candidate is reserved, the candidate endpoint reports ALREADY_PUBLISHED
+// for that date range, so a re-run cannot post the same screening twice.
+export const reserveCandidate = (screeningId: number, platform: Platform) =>
+  socialsAction("reserve", screeningId, platform);
+
+export const markCandidateAsPublished = (
+  screeningId: number,
+  platform: Platform
+) => socialsAction("publish", screeningId, platform);
