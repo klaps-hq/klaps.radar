@@ -1,3 +1,5 @@
+import { readTokenFile } from "./token";
+
 export type CandidateApiEnv = {
   apiUrl: string;
   internalApiKey: string;
@@ -58,23 +60,6 @@ export const resolveCandidateApiEnv = (): CandidateApiEnv => {
   };
 };
 
-// In containers the refreshed token outlives any single deploy by living in
-// a file on a volume; the env var only seeds the very first run.
-const readTokenFromFile = (): string | undefined => {
-  const tokenFile = process.env.INSTAGRAM_TOKEN_FILE;
-  if (!tokenFile) {
-    return undefined;
-  }
-
-  try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
-    const token = readFileSync(tokenFile, "utf8").trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export type FacebookEnv = {
   pageId: string;
   pageAccessToken: string;
@@ -102,7 +87,7 @@ export const resolveFacebookEnv = (): FacebookEnv => {
 
 export const resolveInstagramEnv = (): InstagramEnv => {
   const accessToken = normalizeAccessToken(
-    readTokenFromFile() ?? process.env.INSTAGRAM_ACCESS_TOKEN
+    readTokenFile("INSTAGRAM_TOKEN_FILE") ?? process.env.INSTAGRAM_ACCESS_TOKEN
   );
   const instagramUserId = normalizeEnvValue(process.env.INSTAGRAM_USER_ID);
   const missing = getMissingVars({
@@ -117,5 +102,30 @@ export const resolveInstagramEnv = (): InstagramEnv => {
   return {
     accessToken: accessToken as string,
     instagramUserId: instagramUserId as string,
+  };
+};
+
+export type ThreadsEnv = {
+  accessToken: string;
+  threadsUserId: string;
+};
+
+export const resolveThreadsEnv = (): ThreadsEnv => {
+  const accessToken = normalizeAccessToken(
+    readTokenFile("THREADS_TOKEN_FILE") ?? process.env.THREADS_ACCESS_TOKEN
+  );
+  const threadsUserId = normalizeEnvValue(process.env.THREADS_USER_ID);
+  const missing = getMissingVars({
+    THREADS_ACCESS_TOKEN: accessToken,
+    THREADS_USER_ID: threadsUserId,
+  });
+
+  if (missing.length > 0) {
+    throw new Error(`Set required environment variables: ${missing.join(", ")}.`);
+  }
+
+  return {
+    accessToken: accessToken as string,
+    threadsUserId: threadsUserId as string,
   };
 };

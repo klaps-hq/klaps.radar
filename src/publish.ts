@@ -1,5 +1,6 @@
-import { publishFacebookPhoto } from "./facebook";
+import { publishFacebookPhoto, publishFacebookStory } from "./facebook";
 import { publishInstagramImage, refreshInstagramToken } from "./instagram";
+import { publishThreadsImage, refreshThreadsToken } from "./threads";
 import { API_URL, INTERNAL_API_KEY } from "./constants/env";
 import { renderScreeningImage } from "./render/render";
 import type {
@@ -92,7 +93,8 @@ export const createSocialMedia = async (
   // twice, even if a later step fails.
   await reserveCandidate(candidate.id, platform);
 
-  const isStory = platform === "instagram_story";
+  const isStory =
+    platform === "instagram_story" || platform === "facebook_story";
   const imageBuffer = await renderScreeningImage(
     isStory ? "story" : "post",
     candidate
@@ -101,18 +103,31 @@ export const createSocialMedia = async (
 
   let mediaId: string;
 
-  if (platform === "facebook_post") {
-    mediaId = await publishFacebookPhoto({
-      imageUrl,
-      caption: buildCaption(candidate),
-    });
-  } else {
-    await refreshInstagramToken();
-    mediaId = await publishInstagramImage({
-      imageUrl,
-      story: isStory,
-      caption: isStory ? undefined : buildCaption(candidate),
-    });
+  switch (platform) {
+    case "facebook_post":
+      mediaId = await publishFacebookPhoto({
+        imageUrl,
+        caption: buildCaption(candidate),
+      });
+      break;
+    case "facebook_story":
+      mediaId = await publishFacebookStory({ imageUrl });
+      break;
+    case "threads_post":
+      await refreshThreadsToken();
+      // Threads caps post text at 500 characters.
+      mediaId = await publishThreadsImage({
+        imageUrl,
+        text: truncateText(buildCaption(candidate), 490),
+      });
+      break;
+    default:
+      await refreshInstagramToken();
+      mediaId = await publishInstagramImage({
+        imageUrl,
+        story: isStory,
+        caption: isStory ? undefined : buildCaption(candidate),
+      });
   }
 
   await markCandidateAsPublished(candidate.id, platform);

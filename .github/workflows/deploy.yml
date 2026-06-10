@@ -98,9 +98,13 @@ jobs:
             INSTAGRAM_USER_ID=${{ secrets.INSTAGRAM_USER_ID }}
             FACEBOOK_PAGE_ID=${{ secrets.FACEBOOK_PAGE_ID }}
             FACEBOOK_PAGE_ACCESS_TOKEN=${{ secrets.FACEBOOK_PAGE_ACCESS_TOKEN }}
+            THREADS_USER_ID=${{ secrets.THREADS_USER_ID }}
+            THREADS_ACCESS_TOKEN=${{ secrets.THREADS_ACCESS_TOKEN }}
             IG_POST_CRON=${{ secrets.IG_POST_CRON }}
             IG_STORY_CRON=${{ secrets.IG_STORY_CRON }}
             FB_POST_CRON=${{ secrets.FB_POST_CRON }}
+            FB_STORY_CRON=${{ secrets.FB_STORY_CRON }}
+            THREADS_POST_CRON=${{ secrets.THREADS_POST_CRON }}
             IMAGE_NAME=${{ secrets.IMAGE_NAME }}
             IMAGE_TAG=latest
             CONTAINER_NAME=klaps-radar-prod

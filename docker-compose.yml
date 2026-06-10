@@ -6,9 +6,10 @@ services:
     env_file:
       - .env
     environment:
-      # The refreshed Instagram token lives on the volume, surviving
-      # redeploys; INSTAGRAM_ACCESS_TOKEN from .env only seeds the first run.
+      # Refreshed tokens live on the volume, surviving redeploys; the
+      # *_ACCESS_TOKEN values from .env only seed the first run.
       - INSTAGRAM_TOKEN_FILE=/data/instagram-token
+      - THREADS_TOKEN_FILE=/data/threads-token
     volumes:
       - radar_data:/data
 
