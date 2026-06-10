@@ -3,7 +3,7 @@ name: PR Conventions
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: [dev, main]
+    branches: [main]
 
 concurrency:
   group: pr-conventions-${{ github.event.pull_request.number || github.ref }}
@@ -79,3 +79,4 @@ jobs:
           fi
 
           echo "All commit messages are valid."
+
