@@ -50,6 +50,54 @@ const getContainerStatus = async (containerId: string): Promise<string> => {
   return data.status_code ?? "UNKNOWN";
 };
 
+// Long-lived Instagram tokens expire after ~60 days but can be refreshed
+// any time once they are 24h old. Refreshing on every publish run keeps the
+// token perpetually valid; the new value is persisted back into .env.
+const ENV_FILE_URL = new URL("../.env", import.meta.url);
+
+export const refreshInstagramToken = async (): Promise<void> => {
+  const { accessToken } = resolveInstagramEnv();
+  const url = new URL(`${INSTAGRAM_GRAPH_URL}/refresh_access_token`);
+  url.searchParams.set("grant_type", "ig_refresh_token");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url);
+  const data = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+  } & GraphError;
+
+  if (!response.ok || !data.access_token) {
+    // Not fatal: a token younger than 24h cannot be refreshed yet and the
+    // current one still works for this run.
+    console.warn(
+      `Token refresh skipped: ${data.error?.message ?? response.statusText}`
+    );
+    return;
+  }
+
+  process.env.INSTAGRAM_ACCESS_TOKEN = data.access_token;
+
+  try {
+    const envFile = Bun.file(ENV_FILE_URL);
+    if (await envFile.exists()) {
+      const text = await envFile.text();
+      await Bun.write(
+        ENV_FILE_URL,
+        text.replace(
+          /^INSTAGRAM_ACCESS_TOKEN=.*$/m,
+          `INSTAGRAM_ACCESS_TOKEN=${data.access_token}`
+        )
+      );
+    }
+  } catch {
+    console.warn("Refreshed token could not be persisted to .env");
+  }
+
+  const validDays = Math.round((data.expires_in ?? 0) / 86400);
+  console.log(`Instagram token refreshed (valid ~${validDays} days)`);
+};
+
 export type PublishImageOptions = {
   imageUrl: string;
   caption?: string;

@@ -10,26 +10,32 @@ export type Variant = "post" | "story";
 // Teaser look inspired by zine film posters: a duotone movie still fills a
 // framed card, an oversized condensed title hooks the eye, and the graphic
 // carries only date + city - full details live in the caption.
-const CANVAS = "#0b0b0b";
+// Pure black: anything else shows as a second shade against Instagram's
+// black app background.
+const FRAME_COLOR = "#000000";
 
 export const LAYOUTS = {
   post: {
     width: 1080,
     height: 1350,
-    framePad: 26,
+    frame: { top: 32, right: 64, bottom: 32, left: 64 },
     radius: 16,
     pad: 56,
-    titleBase: 148,
-    eyebrowSize: 23,
-    dateSize: 52,
-    hookSize: 24,
+    headerTop: 42,
+    titleBase: 112,
+    eyebrowSize: 22,
+    dateSize: 44,
+    hookSize: 23,
   },
   story: {
     width: 1080,
     height: 1920,
-    framePad: 30,
+    // The card starts below Instagram's story UI (avatar, name, close
+    // button) and keeps wider margins so tray thumbnails read cleanly.
+    frame: { top: 160, right: 44, bottom: 56, left: 44 },
     radius: 18,
     pad: 64,
+    headerTop: 150,
     titleBase: 160,
     eyebrowSize: 25,
     dateSize: 60,
@@ -37,11 +43,21 @@ export const LAYOUTS = {
   },
 } as const;
 
+type Layout = (typeof LAYOUTS)[Variant];
+
+const getCardRect = (layout: Layout) => ({
+  x: layout.frame.left,
+  y: layout.frame.top,
+  width: layout.width - layout.frame.left - layout.frame.right,
+  height: layout.height - layout.frame.top - layout.frame.bottom,
+  radius: layout.radius,
+});
+
 // Long titles shrink so they keep to one or two lines at most.
 const getTitleSize = (title: string, base: number): number => {
-  if (title.length > 24) return Math.round(base * 0.5);
-  if (title.length > 16) return Math.round(base * 0.62);
-  if (title.length > 10) return Math.round(base * 0.78);
+  if (title.length > 24) return Math.round(base * 0.54);
+  if (title.length > 16) return Math.round(base * 0.66);
+  if (title.length > 10) return Math.round(base * 0.82);
   return base;
 };
 
@@ -58,8 +74,9 @@ export const ScreeningImage = ({
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
 
-  const cardWidth = layout.width - layout.framePad * 2;
-  const cardHeight = layout.height - layout.framePad * 2;
+  const card = getCardRect(layout);
+  const cardWidth = card.width;
+  const cardHeight = card.height;
 
   const eyebrow = [movie.productionYear, formatDuration(movie.duration)]
     .filter(Boolean)
@@ -71,10 +88,11 @@ export const ScreeningImage = ({
         width: layout.width,
         height: layout.height,
         display: "flex",
-        backgroundColor: CANVAS,
+        position: "relative",
         color: "#ffffff",
         fontFamily: "Inter",
-        padding: layout.framePad,
+        padding: `${layout.frame.top}px ${layout.frame.right}px ${layout.frame.bottom}px ${layout.frame.left}px`,
+        backgroundColor: FRAME_COLOR,
       }}
     >
       <div
@@ -86,7 +104,10 @@ export const ScreeningImage = ({
           height: cardHeight,
           borderRadius: layout.radius,
           overflow: "hidden",
-          backgroundColor: "#1a1a1a",
+          // Transparent on purpose: the video pipeline renders this template
+          // without an image and lays the PNG over the animated backdrop -
+          // the card area must stay a see-through window.
+          backgroundColor: "rgba(0,0,0,0)",
         }}
       >
         {imageUrl && (
@@ -118,35 +139,39 @@ export const ScreeningImage = ({
           }}
         />
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: `${Math.round(layout.pad * 0.75)}px ${layout.pad}px 0 ${layout.pad}px`,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <svg width={34} height={24} viewBox="0 0 28 20" fill="none">
-              <polygon points="0,8 28,0 28,20 0,12" fill="#ffffff" />
-            </svg>
-            <span
-              style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em" }}
-            >
-              klaps
-            </span>
-          </div>
-          <span
+        {/* Story skips the brand bar: Instagram already shows the profile
+            name at the top, so the logo would only duplicate the UI. */}
+        {variant === "post" && (
+          <div
             style={{
-              fontSize: 22,
-              textTransform: "uppercase",
-              letterSpacing: "0.28em",
-              color: "rgba(255,255,255,0.85)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: `${layout.headerTop}px ${layout.pad}px 0 ${layout.pad}px`,
             }}
           >
-            {cinema.city.name}
-          </span>
-        </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <svg width={34} height={24} viewBox="0 0 28 20" fill="none">
+                <polygon points="0,8 28,0 28,20 0,12" fill="#ffffff" />
+              </svg>
+              <span
+                style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em" }}
+              >
+                klaps
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: 22,
+                textTransform: "uppercase",
+                letterSpacing: "0.28em",
+                color: "rgba(255,255,255,0.85)",
+              }}
+            >
+              {cinema.city.name}
+            </span>
+          </div>
+        )}
 
         <div style={{ display: "flex", flex: 1 }} />
 
@@ -215,6 +240,7 @@ export const ScreeningImage = ({
             }}
           >
             {cinema.name}
+            {variant === "story" ? ` · ${cinema.city.name}` : ""}
           </span>
 
           <div

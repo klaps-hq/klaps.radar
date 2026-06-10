@@ -1,5 +1,15 @@
 import { POLISH_MONTHS } from "../constants";
 
+/** Today's date as YYYY-MM-DD in the Europe/Warsaw timezone. */
+export const todayInPoland = (): string =>
+  new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Warsaw" });
+
+export const addDays = (dateStr: string, days: number): string => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const ms = Date.UTC(y!, m! - 1, d!) + days * 86400000;
+  return new Date(ms).toISOString().slice(0, 10);
+};
+
 // The DB stores screening datetimes as naive local timestamps, so the
 // wall-clock digits in the ISO string are already correct - parse them
 // straight from the string instead of going through Date and timezones.
