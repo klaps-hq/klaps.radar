@@ -26,7 +26,16 @@ bun run create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScor
 bun run create:facebook-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 ```
 
-Facebook wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (long-lived Page token — pozyskany z long-lived user tokena nie wygasa; publikacja to pojedynczy `POST /{page-id}/photos`). Bez tych zmiennych scheduler pomija joba FB. Harmonogram: `FB_POST_CRON` (domyślnie 12:00).
+```bash
+bun run create:facebook-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]
+bun run create:threads-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
+```
+
+**Facebook** wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (Page token system usera z Business Managera — nie wygasa). Post to pojedynczy `POST /{page-id}/photos`; story to upload z `published=false` + `POST /{page-id}/photo_stories`. Harmonogram: `FB_POST_CRON` (domyślnie 12:00), `FB_STORY_CRON` (8:45).
+
+**Threads** wymaga `THREADS_USER_ID` i `THREADS_ACCESS_TOKEN` (long-lived, 60 dni — odświeżany automatycznie przy publikacji jak token IG, trzymany na wolumenie `THREADS_TOKEN_FILE`). Flow: kontener → `threads_publish`; tekst ucinany do 490 znaków (limit Threads: 500). Harmonogram: `THREADS_POST_CRON` (domyślnie 13:00).
+
+Bez odpowiednich zmiennych scheduler pomija dane joby z czytelnym logiem.
 
 ## Jak to działa
 

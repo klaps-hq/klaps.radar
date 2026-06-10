@@ -1,4 +1,9 @@
-export type Platform = "instagram_post" | "instagram_story" | "facebook_post";
+export type Platform =
+  | "instagram_post"
+  | "instagram_story"
+  | "facebook_post"
+  | "facebook_story"
+  | "threads_post";
 
 export type ScreeningCity = {
   name: string;

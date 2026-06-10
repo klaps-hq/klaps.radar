@@ -43,3 +43,57 @@ export const publishFacebookPhoto = async (options: {
 
   return String(data.post_id ?? data.id);
 };
+
+// Page Stories are two-step: upload the photo unpublished, then promote it
+// to a story. Uses the same eternal Page token as feed posts.
+export const publishFacebookStory = async (options: {
+  imageUrl: string;
+}): Promise<string> => {
+  const { pageId, pageAccessToken } = resolveFacebookEnv();
+
+  const uploadResponse = await fetch(
+    `${FACEBOOK_GRAPH_URL}/${FACEBOOK_API_VERSION}/${pageId}/photos`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        url: options.imageUrl,
+        published: "false",
+        access_token: pageAccessToken,
+      }),
+    }
+  );
+
+  const uploaded = (await uploadResponse.json()) as { id?: string } & GraphError;
+
+  if (!uploadResponse.ok || !uploaded.id) {
+    throw new Error(
+      `Facebook API error (story photo upload): ${uploaded.error?.message ?? uploadResponse.statusText}`
+    );
+  }
+
+  const storyResponse = await fetch(
+    `${FACEBOOK_GRAPH_URL}/${FACEBOOK_API_VERSION}/${pageId}/photo_stories`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        photo_id: uploaded.id,
+        access_token: pageAccessToken,
+      }),
+    }
+  );
+
+  const story = (await storyResponse.json()) as {
+    post_id?: string;
+    success?: boolean;
+  } & GraphError;
+
+  if (!storyResponse.ok) {
+    throw new Error(
+      `Facebook API error (photo_stories): ${story.error?.message ?? storyResponse.statusText}`
+    );
+  }
+
+  return String(story.post_id ?? uploaded.id);
+};

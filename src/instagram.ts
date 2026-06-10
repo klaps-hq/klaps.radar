@@ -1,5 +1,6 @@
 import { INSTAGRAM_API_VERSION, INSTAGRAM_GRAPH_URL } from "./constants";
 import { resolveInstagramEnv } from "./utils/environment";
+import { persistToken } from "./utils/token";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const CONTAINER_POLL_ATTEMPTS = 10;
@@ -52,9 +53,7 @@ const getContainerStatus = async (containerId: string): Promise<string> => {
 
 // Long-lived Instagram tokens expire after ~60 days but can be refreshed
 // any time once they are 24h old. Refreshing on every publish run keeps the
-// token perpetually valid; the new value is persisted back into .env.
-const ENV_FILE_URL = new URL("../.env", import.meta.url);
-
+// token perpetually valid.
 export const refreshInstagramToken = async (): Promise<void> => {
   const { accessToken } = resolveInstagramEnv();
   const url = new URL(`${INSTAGRAM_GRAPH_URL}/refresh_access_token`);
@@ -76,29 +75,11 @@ export const refreshInstagramToken = async (): Promise<void> => {
     return;
   }
 
-  process.env.INSTAGRAM_ACCESS_TOKEN = data.access_token;
-
-  try {
-    const tokenFile = process.env.INSTAGRAM_TOKEN_FILE;
-    if (tokenFile) {
-      // Container mode: the token lives on a volume and survives redeploys.
-      await Bun.write(tokenFile, data.access_token);
-    } else {
-      const envFile = Bun.file(ENV_FILE_URL);
-      if (await envFile.exists()) {
-        const text = await envFile.text();
-        await Bun.write(
-          ENV_FILE_URL,
-          text.replace(
-            /^INSTAGRAM_ACCESS_TOKEN=.*$/m,
-            `INSTAGRAM_ACCESS_TOKEN=${data.access_token}`
-          )
-        );
-      }
-    }
-  } catch {
-    console.warn("Refreshed token could not be persisted");
-  }
+  await persistToken(
+    data.access_token,
+    "INSTAGRAM_ACCESS_TOKEN",
+    "INSTAGRAM_TOKEN_FILE"
+  );
 
   const validDays = Math.round((data.expires_in ?? 0) / 86400);
   console.log(`Instagram token refreshed (valid ~${validDays} days)`);
