@@ -22,6 +22,10 @@ export const fetchCandidate = async (
     params.set("numberOfCandidates", String(config.numberOfCandidates));
   }
 
+  if (config.maxPosts !== undefined) {
+    params.set("maxPosts", String(config.maxPosts));
+  }
+
   const url = `${API_URL}/socials/candidate?${params.toString()}`;
 
   if (!INTERNAL_API_KEY) {

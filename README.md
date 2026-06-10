@@ -31,9 +31,9 @@ bun run create:facebook-story <dateFrom> <dateTo> [numberOfCandidates] [minScore
 bun run create:threads-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 ```
 
-**Facebook** wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (Page token system usera z Business Managera — nie wygasa). Post to pojedynczy `POST /{page-id}/photos`; story to upload z `published=false` + `POST /{page-id}/photo_stories`. Harmonogram: `FB_POST_CRON` (domyślnie 12:00), `FB_STORY_CRON` (8:45).
+**Facebook** wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (Page token system usera z Business Managera — nie wygasa). Post to pojedynczy `POST /{page-id}/photos`; story to upload z `published=false` + `POST /{page-id}/photo_stories`. Harmonogram: `FB_POST_CRON` (domyślnie 13:00), `FB_STORY_CRON` (8:45 i 17:45).
 
-**Threads** wymaga `THREADS_USER_ID` i `THREADS_ACCESS_TOKEN` (long-lived, 60 dni — odświeżany automatycznie przy publikacji jak token IG, trzymany na wolumenie `THREADS_TOKEN_FILE`). Flow: kontener → `threads_publish`; tekst ucinany do 490 znaków (limit Threads: 500). Harmonogram: `THREADS_POST_CRON` (domyślnie 13:00).
+**Threads** wymaga `THREADS_USER_ID` i `THREADS_ACCESS_TOKEN` (long-lived, 60 dni — odświeżany automatycznie przy publikacji jak token IG, trzymany na wolumenie `THREADS_TOKEN_FILE`). Flow: kontener → `threads_publish`; tekst ucinany do 490 znaków (limit Threads: 500). Harmonogram: `THREADS_POST_CRON` (domyślnie 18:30).
 
 Bez odpowiednich zmiennych scheduler pomija dane joby z czytelnym logiem.
 
@@ -48,7 +48,7 @@ Skrypty wywołane bez argumentów same liczą zakres dat (czas warszawski): post
 
 ## Deploy
 
-Push do `main` automatycznie buduje obraz Dockera (GHCR) i wdraża go na VPS (`.github/workflows/deploy.yml`). Kontener to długo żyjący scheduler (`src/scripts/cron.ts`, croner): publikuje post wg `IG_POST_CRON` (domyślnie 11:30) i story wg `IG_STORY_CRON` (domyślnie 8:30), czas Europe/Warsaw.
+Push do `main` automatycznie buduje obraz Dockera (GHCR) i wdraża go na VPS (`.github/workflows/deploy.yml`). Kontener to długo żyjący scheduler (`src/scripts/cron.ts`, croner): publikuje post wg `IG_POST_CRON` (domyślnie 11:30) i story wg `IG_STORY_CRON` (domyślnie 8:30 i 17:30), czas Europe/Warsaw. Stories mają `STORIES_PER_DAY` slotów dziennie (domyślnie 2 — musi zgadzać się z liczbą godzin w cronach stories), a `PUBLISH_JITTER_MINUTES` dodaje losowe opóźnienie 0..N minut przed każdą publikacją (domyślnie 0).
 
 Odświeżony token Instagrama trzymany jest w pliku na wolumenie (`INSTAGRAM_TOKEN_FILE=/data/instagram-token`) i przeżywa redeploye — sekret `INSTAGRAM_ACCESS_TOKEN` zasiewa tylko pierwszy start.
 

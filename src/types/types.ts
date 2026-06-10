@@ -41,6 +41,9 @@ export type FetchCandidateConfig = {
   platform: Platform;
   minScore?: number;
   numberOfCandidates?: number;
+  // How many posts may already exist in the range before the API reports
+  // ALREADY_PUBLISHED - lets stories run more than one slot per day.
+  maxPosts?: number;
 };
 
 export type FetchCandidateResponse = {
