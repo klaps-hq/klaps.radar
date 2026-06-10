@@ -1,55 +1,81 @@
-# klaps-radar
+<p align="center">
+  <img src="klaps-radar-og.png" alt="Klaps Radar" width="800" />
+</p>
 
-Automatyczne publikowanie postów i stories na Instagramie z seansami z [klaps.space](https://klaps.space).
+<h1 align="center">Klaps Radar</h1>
 
-Obrazy renderowane są bez przeglądarki: [satori](https://github.com/vercel/satori) (JSX → SVG) + [sharp](https://sharp.pixelplumbing.com/) (SVG → JPEG), w designie klaps.space.
+<p align="center">
+  <em>Social automation for Klaps — renders screening artwork and publishes it to Instagram, Facebook, and Threads.</em>
+</p>
 
-## Instalacja
+<p align="center">
+  <a href="#getting-started">Getting Started</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#scheduling">Scheduling</a> ·
+  <a href="#deployment">Deployment</a>
+</p>
+
+---
+
+Klaps Radar picks the best upcoming screening from the [Klaps](https://klaps.space) API, renders a branded image for it, and publishes posts and stories across social platforms. Images are rendered without a browser: [satori](https://github.com/vercel/satori) (JSX → SVG) + [sharp](https://sharp.pixelplumbing.com/) (SVG → JPEG), following the klaps.space design language.
+
+## Getting Started
 
 ```bash
 bun install
 ```
 
-## Użycie
-
-Podgląd szablonów (zapisuje `previews/instagram-post.jpg` i `previews/instagram-story.jpg`):
+Preview the templates (writes `previews/instagram-post.jpg` and `previews/instagram-story.jpg`):
 
 ```bash
 bun run preview
 ```
 
-Publikacja (wymaga `.env` z `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`):
+Publish (requires `.env` with `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`):
 
 ```bash
 bun run create:instagram-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 bun run create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 bun run create:facebook-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
-```
-
-```bash
 bun run create:facebook-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 bun run create:threads-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 ```
 
-**Facebook** wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (Page token system usera z Business Managera — nie wygasa). Post to pojedynczy `POST /{page-id}/photos`; story to upload z `published=false` + `POST /{page-id}/photo_stories`. Harmonogram: `FB_POST_CRON` (domyślnie 13:00), `FB_STORY_CRON` (8:45 i 17:45).
+Scripts invoked without arguments compute the date range themselves (Warsaw time): posts cover the next 7 days, stories cover today–tomorrow — a bare `bun run create:instagram-post` is cron-ready.
 
-**Threads** wymaga `THREADS_USER_ID` i `THREADS_ACCESS_TOKEN` (long-lived, 60 dni — odświeżany automatycznie przy publikacji jak token IG, trzymany na wolumenie `THREADS_TOKEN_FILE`). Flow: kontener → `threads_publish`; tekst ucinany do 490 znaków (limit Threads: 500). Harmonogram: `THREADS_POST_CRON` (domyślnie 18:30).
+## Platforms
 
-Bez odpowiednich zmiennych scheduler pomija dane joby z czytelnym logiem.
+**Facebook** requires `FACEBOOK_PAGE_ID` and `FACEBOOK_PAGE_ACCESS_TOKEN` (a system user Page token from Business Manager — it does not expire). A post is a single `POST /{page-id}/photos`; a story is an upload with `published=false` followed by `POST /{page-id}/photo_stories`.
 
-## Jak to działa
+**Threads** requires `THREADS_USER_ID` and `THREADS_ACCESS_TOKEN` (long-lived, 60 days — refreshed automatically on publish like the Instagram token and kept on the `THREADS_TOKEN_FILE` volume). Flow: media container → `threads_publish`; text is truncated to 490 characters (Threads caps posts at 500).
 
-1. `src/utils/candidate.ts` — pobiera najlepszy seans-kandydata z API (backend pilnuje deduplikacji i 30-dniowego cooldownu filmu).
-2. `src/render/template.tsx` — jeden szablon JSX w dwóch wariantach (post 1080×1350, story 1080×1920); kadr filmu z TMDB w pełnej rozdzielczości.
-3. `src/render/render.tsx` — satori + sharp renderują JPEG (obraz wstawiany jako data URL).
-4. `src/publish.ts` — rezerwuje kandydata, wrzuca obraz do własnego API (`POST /socials/image`, publiczny `GET /socials/image/:id`), odświeża token Instagrama (zapisując nowy do `.env`), publikuje przez Graph API (kontener → `media_publish`) i oznacza kandydata jako opublikowanego.
+Without the relevant variables the scheduler skips those jobs with a clear log line.
 
-Skrypty wywołane bez argumentów same liczą zakres dat (czas warszawski): post = najbliższe 7 dni, story = dziś–jutro — wystarczy cron z `bun run create:instagram-post` / `create:instagram-story`.
+## How It Works
 
-## Deploy
+1. `src/utils/candidate.ts` — fetches the best screening candidate from the API (the backend enforces deduplication and a 30-day per-movie cooldown).
+2. `src/render/template.tsx` — a single JSX template in two variants (post 1080×1350, story 1080×1920); the movie still comes from TMDB at full resolution.
+3. `src/render/render.tsx` — satori + sharp render the JPEG (the image is embedded as a data URL).
+4. `src/publish.ts` — reserves the candidate, parks the image in our own API (`POST /socials/image`, public `GET /socials/image/:id`), refreshes the platform token, publishes via the Graph API (container → `media_publish`), and marks the candidate as published.
 
-Push do `main` automatycznie buduje obraz Dockera (GHCR) i wdraża go na VPS (`.github/workflows/deploy.yml`). Kontener to długo żyjący scheduler (`src/scripts/cron.ts`, croner): publikuje post wg `IG_POST_CRON` (domyślnie 11:30) i story wg `IG_STORY_CRON` (domyślnie 8:30 i 17:30), czas Europe/Warsaw. Stories mają `STORIES_PER_DAY` slotów dziennie (domyślnie 2 — musi zgadzać się z liczbą godzin w cronach stories), a `PUBLISH_JITTER_MINUTES` dodaje losowe opóźnienie 0..N minut przed każdą publikacją (domyślnie 0).
+## Scheduling
 
-Odświeżony token Instagrama trzymany jest w pliku na wolumenie (`INSTAGRAM_TOKEN_FILE=/data/instagram-token`) i przeżywa redeploye — sekret `INSTAGRAM_ACCESS_TOKEN` zasiewa tylko pierwszy start.
+The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https://github.com/hexagon/croner), Europe/Warsaw). Posts are staggered across platforms so followers do not see the same artwork everywhere at once; stories run two slots a day within a single cron expression.
 
-Wymagane sekrety repo: `SERVER_IP`, `SERVER_USER`, `SERVER_SSH_KEY`, `PROJECT_DIR`, `GHCR_PAT`, `IMAGE_NAME` (np. `ghcr.io/klaps-hq/klaps.radar`), `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`, `IG_POST_CRON`, `IG_STORY_CRON`.
+| Job             | Variable            | Default        | Fires at      |
+| --------------- | ------------------- | -------------- | ------------- |
+| Instagram story | `IG_STORY_CRON`     | `30 8,17 * * *`  | 8:30, 17:30   |
+| Facebook story  | `FB_STORY_CRON`     | `45 8,17 * * *`  | 8:45, 17:45   |
+| Instagram post  | `IG_POST_CRON`      | `30 11 * * *`    | 11:30         |
+| Facebook post   | `FB_POST_CRON`      | `0 13 * * *`     | 13:00         |
+| Threads post    | `THREADS_POST_CRON` | `30 18 * * *`    | 18:30         |
+
+`STORIES_PER_DAY` (default 2) is sent to the candidate API as `maxPosts` and must match the number of firing times in the story cron expressions. `PUBLISH_JITTER_MINUTES` (default 0) delays every job by a random 0..N minutes so publications do not land at the exact same minute every day.
+
+## Deployment
+
+A push to `main` builds the Docker image (GHCR) and deploys it to the VPS (`.github/workflows/deploy.yml`).
+
+Refreshed platform tokens live in files on a volume (`INSTAGRAM_TOKEN_FILE=/data/instagram-token`, `THREADS_TOKEN_FILE=/data/threads-token`) and survive redeploys — the `*_ACCESS_TOKEN` secrets only seed the very first run.
+
+Required secrets: `SERVER_IP`, `SERVER_USER`, `SERVER_SSH_KEY`, `PROJECT_DIR`, `GHCR_PAT`, `IMAGE_NAME` (e.g. `ghcr.io/klaps-hq/klaps.radar`), `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`, `FACEBOOK_PAGE_ID`, `FACEBOOK_PAGE_ACCESS_TOKEN`, `THREADS_USER_ID`, `THREADS_ACCESS_TOKEN`, plus the optional cron overrides listed above.
