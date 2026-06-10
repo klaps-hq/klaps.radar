@@ -1,13 +1,10 @@
 import { createInstagramMedia } from "../../publish";
+import { addDays, todayInPoland } from "../../utils/format";
 
 const main = async () => {
-  const dateFrom = Bun.argv[2]?.trim();
-  const dateTo = Bun.argv[3]?.trim();
-
-  if (!dateFrom || !dateTo) {
-    console.error("Usage: create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]");
-    process.exit(1);
-  }
+  // Cron-friendly defaults: today plus tomorrow ("co gra dzis/jutro").
+  const dateFrom = Bun.argv[2]?.trim() || todayInPoland();
+  const dateTo = Bun.argv[3]?.trim() || addDays(dateFrom, 1);
 
   // API scoring is an integer point sum (deep classic 30 + multi-city 20 +
   // multi-genre 10 = max 60); the DTO rejects non-integers.

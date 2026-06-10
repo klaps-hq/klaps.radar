@@ -27,7 +27,9 @@ bun run create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScor
 
 ## Jak to działa
 
-1. `src/utils/candidate.ts` — pobiera najlepszy seans-kandydata z API.
-2. `src/render/template.tsx` — jeden szablon JSX w dwóch wariantach (post 1080×1350, story 1080×1920).
-3. `src/render/render.tsx` — satori + sharp renderują JPEG (plakat wstawiany jako data URL).
-4. `src/publish.ts` — wrzuca obraz na tymczasowy hosting (24h), publikuje przez Instagram Graph API (kontener → `media_publish`) i oznacza kandydata jako opublikowanego.
+1. `src/utils/candidate.ts` — pobiera najlepszy seans-kandydata z API (backend pilnuje deduplikacji i 30-dniowego cooldownu filmu).
+2. `src/render/template.tsx` — jeden szablon JSX w dwóch wariantach (post 1080×1350, story 1080×1920); kadr filmu z TMDB w pełnej rozdzielczości.
+3. `src/render/render.tsx` — satori + sharp renderują JPEG (obraz wstawiany jako data URL).
+4. `src/publish.ts` — rezerwuje kandydata, wrzuca obraz do własnego API (`POST /socials/image`, publiczny `GET /socials/image/:id`), odświeża token Instagrama (zapisując nowy do `.env`), publikuje przez Graph API (kontener → `media_publish`) i oznacza kandydata jako opublikowanego.
+
+Skrypty wywołane bez argumentów same liczą zakres dat (czas warszawski): post = najbliższe 7 dni, story = dziś–jutro — wystarczy cron z `bun run create:instagram-post` / `create:instagram-story`.

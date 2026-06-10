@@ -1,4 +1,5 @@
-import { publishInstagramImage } from "./instagram";
+import { publishInstagramImage, refreshInstagramToken } from "./instagram";
+import { API_URL, INTERNAL_API_KEY } from "./constants/env";
 import { renderScreeningImage } from "./render/render";
 import type {
   FetchCandidateConfig,
@@ -17,25 +18,25 @@ import {
 } from "./utils/format";
 
 // Instagram fetches media from a public URL, so the rendered image is parked
-// on a 24h temporary host just long enough for the Graph API to ingest it.
+// in our own API (GET /socials/image/:id is public) just long enough for the
+// Graph API to ingest it; the API prunes stale images automatically.
 const uploadTemporaryImage = async (imageBuffer: Buffer): Promise<string> => {
+  if (!API_URL || !INTERNAL_API_KEY) {
+    throw new Error("API_URL and INTERNAL_API_KEY must be set");
+  }
+
   const formData = new FormData();
-  formData.append("reqtype", "fileupload");
-  formData.append("time", "24h");
   formData.append(
-    "fileToUpload",
+    "file",
     new Blob([new Uint8Array(imageBuffer)], { type: "image/jpeg" }),
     "post.jpg"
   );
 
-  const response = await fetch(
-    "https://litterbox.catbox.moe/resources/internals/api.php",
-    {
-      method: "POST",
-      headers: { "User-Agent": "klaps-radar/1.0" },
-      body: formData,
-    }
-  );
+  const response = await fetch(`${API_URL}/socials/image`, {
+    method: "POST",
+    headers: { "x-internal-api-key": INTERNAL_API_KEY },
+    body: formData,
+  });
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unknown error");
@@ -44,7 +45,8 @@ const uploadTemporaryImage = async (imageBuffer: Buffer): Promise<string> => {
     );
   }
 
-  return (await response.text()).trim();
+  const { id } = (await response.json()) as { id: string };
+  return `${API_URL}/socials/image/${id}`;
 };
 
 const buildCaption = (screening: Screening): string => {
@@ -69,11 +71,20 @@ export const createInstagramMedia = async (
   platform: Platform,
   config: Omit<FetchCandidateConfig, "platform">
 ): Promise<void> => {
-  const { candidates } = await fetchCandidate({ ...config, platform });
-  const candidate = candidates[0];
+  const response = await fetchCandidate({ ...config, platform });
+  const candidate = response.candidates[0];
 
-  if (!candidate) {
-    throw new Error("No candidate found");
+  // A no-op is not a failure: the range may already have a published post
+  // (dedupe) or simply no screening clears the quality bar today.
+  if (!response.publish || !candidate) {
+    const detail =
+      response.reason === "NO_HIGH_QUALITY_CANDIDATE"
+        ? ` (bestScore: ${response.meta.bestScore}, minScore: ${response.meta.minScore})`
+        : "";
+    console.log(
+      `Skipping ${platform} for ${response.date.from}..${response.date.to}: ${response.reason}${detail}`
+    );
+    return;
   }
 
   // Reserve before publishing so a re-run cannot post the same screening
@@ -86,6 +97,8 @@ export const createInstagramMedia = async (
     candidate
   );
   const imageUrl = await uploadTemporaryImage(imageBuffer);
+
+  await refreshInstagramToken();
 
   const mediaId = await publishInstagramImage({
     imageUrl,
