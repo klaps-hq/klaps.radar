@@ -1,3 +1,4 @@
+import { publishFacebookPhoto } from "./facebook";
 import { publishInstagramImage, refreshInstagramToken } from "./instagram";
 import { API_URL, INTERNAL_API_KEY } from "./constants/env";
 import { renderScreeningImage } from "./render/render";
@@ -67,7 +68,7 @@ const buildCaption = (screening: Screening): string => {
   ].join("\n");
 };
 
-export const createInstagramMedia = async (
+export const createSocialMedia = async (
   platform: Platform,
   config: Omit<FetchCandidateConfig, "platform">
 ): Promise<void> => {
@@ -98,15 +99,24 @@ export const createInstagramMedia = async (
   );
   const imageUrl = await uploadTemporaryImage(imageBuffer);
 
-  await refreshInstagramToken();
+  let mediaId: string;
 
-  const mediaId = await publishInstagramImage({
-    imageUrl,
-    story: isStory,
-    caption: isStory ? undefined : buildCaption(candidate),
-  });
+  if (platform === "facebook_post") {
+    mediaId = await publishFacebookPhoto({
+      imageUrl,
+      caption: buildCaption(candidate),
+    });
+  } else {
+    await refreshInstagramToken();
+    mediaId = await publishInstagramImage({
+      imageUrl,
+      story: isStory,
+      caption: isStory ? undefined : buildCaption(candidate),
+    });
+  }
 
   await markCandidateAsPublished(candidate.id, platform);
 
   console.log(`Published ${platform} (media ${mediaId}): ${imageUrl}`);
 };
+

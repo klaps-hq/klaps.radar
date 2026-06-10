@@ -9,6 +9,9 @@ export const INSTAGRAM_STORY = {
 export const INSTAGRAM_API_VERSION = "v25.0";
 export const INSTAGRAM_GRAPH_URL = "https://graph.instagram.com";
 
+export const FACEBOOK_API_VERSION = "v25.0";
+export const FACEBOOK_GRAPH_URL = "https://graph.facebook.com";
+
 export const POLISH_MONTHS = [
   "stycznia",
   "lutego",

@@ -23,7 +23,10 @@ Publikacja (wymaga `.env` z `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOK
 ```bash
 bun run create:instagram-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 bun run create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScore]
+bun run create:facebook-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]
 ```
+
+Facebook wymaga `FACEBOOK_PAGE_ID` i `FACEBOOK_PAGE_ACCESS_TOKEN` (long-lived Page token — pozyskany z long-lived user tokena nie wygasa; publikacja to pojedynczy `POST /{page-id}/photos`). Bez tych zmiennych scheduler pomija joba FB. Harmonogram: `FB_POST_CRON` (domyślnie 12:00).
 
 ## Jak to działa
 

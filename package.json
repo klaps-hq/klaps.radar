@@ -6,7 +6,8 @@
   "scripts": {
     "preview": "bun src/scripts/preview.ts",
     "create:instagram-post": "bun --env-file .env src/scripts/create/instagram-post.ts",
-    "create:instagram-story": "bun --env-file .env src/scripts/create/instagram-story.ts"
+    "create:instagram-story": "bun --env-file .env src/scripts/create/instagram-story.ts",
+    "create:facebook-post": "bun --env-file .env src/scripts/create/facebook-post.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
