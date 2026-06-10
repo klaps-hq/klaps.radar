@@ -1,4 +1,4 @@
-import { createInstagramMedia } from "../../publish";
+import { createSocialMedia } from "../../publish";
 import { addDays, todayInPoland } from "../../utils/format";
 
 const main = async () => {
@@ -11,7 +11,7 @@ const main = async () => {
   const numberOfCandidates = parseInt(Bun.argv[4]?.trim() || "30", 10);
   const minScore = parseInt(Bun.argv[5]?.trim() || "30", 10);
 
-  await createInstagramMedia("instagram_post", {
+  await createSocialMedia("instagram_post", {
     dateFrom,
     dateTo,
     minScore,
@@ -23,3 +23,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
