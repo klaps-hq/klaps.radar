@@ -3,7 +3,6 @@ name: PR Typecheck
 on:
   pull_request:
     branches:
-      - dev
       - main
 
 concurrency:
@@ -29,3 +28,4 @@ jobs:
 
       - name: Typecheck
         run: bun node_modules/typescript/bin/tsc --noEmit
+
