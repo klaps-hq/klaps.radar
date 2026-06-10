@@ -75,6 +75,31 @@ const readTokenFromFile = (): string | undefined => {
   }
 };
 
+export type FacebookEnv = {
+  pageId: string;
+  pageAccessToken: string;
+};
+
+export const resolveFacebookEnv = (): FacebookEnv => {
+  const pageId = normalizeEnvValue(process.env.FACEBOOK_PAGE_ID);
+  const pageAccessToken = normalizeAccessToken(
+    process.env.FACEBOOK_PAGE_ACCESS_TOKEN
+  );
+  const missing = getMissingVars({
+    FACEBOOK_PAGE_ID: pageId,
+    FACEBOOK_PAGE_ACCESS_TOKEN: pageAccessToken,
+  });
+
+  if (missing.length > 0) {
+    throw new Error(`Set required environment variables: ${missing.join(", ")}.`);
+  }
+
+  return {
+    pageId: pageId as string,
+    pageAccessToken: pageAccessToken as string,
+  };
+};
+
 export const resolveInstagramEnv = (): InstagramEnv => {
   const accessToken = normalizeAccessToken(
     readTokenFromFile() ?? process.env.INSTAGRAM_ACCESS_TOKEN
