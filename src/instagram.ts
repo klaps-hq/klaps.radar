@@ -1,49 +1,139 @@
-import type { InstagramMediaResponse } from "./interfaces/instagram.interface";
-import type {
-  InstagramConnectionConfig,
-  InstagramMediaItem,
-} from "./types/instagram.types";
+import { INSTAGRAM_API_VERSION, INSTAGRAM_GRAPH_URL } from "./constants";
+import { resolveInstagramEnv } from "./utils/environment";
+import { setTimeout as sleep } from "node:timers/promises";
 
-const INSTAGRAM_GRAPH_API_VERSION = "v25.0";
-const INSTAGRAM_GRAPH_API_BASE_URL = `https://graph.instagram.com/${INSTAGRAM_GRAPH_API_VERSION}`;
+const CONTAINER_POLL_ATTEMPTS = 10;
+const CONTAINER_POLL_DELAY_MS = 1500;
 
-const createInstagramMediaUrl = (
-  instagramUserId: string,
-  accessToken: string
-) => {
-  const url = new URL(
-    `${INSTAGRAM_GRAPH_API_BASE_URL}/${instagramUserId}/media`
-  );
+type GraphError = { error?: { message?: string; code?: number } };
 
-  url.searchParams.set(
-    "fields",
-    "id,caption,media_type,media_url,permalink,timestamp"
-  );
+const graphUrl = (path: string): string =>
+  `${INSTAGRAM_GRAPH_URL}/${INSTAGRAM_API_VERSION}/${path}`;
 
-  url.searchParams.set("access_token", accessToken);
-  return url.toString();
+const graphPost = async (
+  path: string,
+  params: Record<string, string>
+): Promise<Record<string, unknown>> => {
+  const { accessToken } = resolveInstagramEnv();
+  const response = await fetch(graphUrl(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...params, access_token: accessToken }),
+  });
+
+  const data = (await response.json()) as Record<string, unknown> & GraphError;
+
+  if (!response.ok) {
+    throw new Error(
+      `Instagram API error (${path}): ${data.error?.message ?? response.statusText}`
+    );
+  }
+
+  return data;
 };
 
-export const fetchInstagramMedia = async (
-  config: InstagramConnectionConfig
-): Promise<InstagramMediaItem[]> => {
-  const requestUrl = createInstagramMediaUrl(
-    config.instagramUserId,
-    config.accessToken
-  );
+const getContainerStatus = async (containerId: string): Promise<string> => {
+  const { accessToken } = resolveInstagramEnv();
+  const url = new URL(graphUrl(containerId));
+  url.searchParams.set("fields", "status_code");
+  url.searchParams.set("access_token", accessToken);
 
-  const response = await fetch(requestUrl);
-  const payload = (await response.json()) as InstagramMediaResponse;
+  const response = await fetch(url);
+  const data = (await response.json()) as { status_code?: string } & GraphError;
 
-  if (!response.ok || payload.error) {
-    const errorMessage =
-      payload.error?.message ?? "Unexpected Instagram API error.";
-    throw new Error(`Instagram connection failed: ${errorMessage}`);
+  if (!response.ok) {
+    throw new Error(
+      `Instagram API error (container status): ${data.error?.message ?? response.statusText}`
+    );
   }
 
-  if (!payload.data) {
-    return [];
+  return data.status_code ?? "UNKNOWN";
+};
+
+// Long-lived Instagram tokens expire after ~60 days but can be refreshed
+// any time once they are 24h old. Refreshing on every publish run keeps the
+// token perpetually valid; the new value is persisted back into .env.
+const ENV_FILE_URL = new URL("../.env", import.meta.url);
+
+export const refreshInstagramToken = async (): Promise<void> => {
+  const { accessToken } = resolveInstagramEnv();
+  const url = new URL(`${INSTAGRAM_GRAPH_URL}/refresh_access_token`);
+  url.searchParams.set("grant_type", "ig_refresh_token");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url);
+  const data = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+  } & GraphError;
+
+  if (!response.ok || !data.access_token) {
+    // Not fatal: a token younger than 24h cannot be refreshed yet and the
+    // current one still works for this run.
+    console.warn(
+      `Token refresh skipped: ${data.error?.message ?? response.statusText}`
+    );
+    return;
   }
 
-  return payload.data;
+  process.env.INSTAGRAM_ACCESS_TOKEN = data.access_token;
+
+  try {
+    const envFile = Bun.file(ENV_FILE_URL);
+    if (await envFile.exists()) {
+      const text = await envFile.text();
+      await Bun.write(
+        ENV_FILE_URL,
+        text.replace(
+          /^INSTAGRAM_ACCESS_TOKEN=.*$/m,
+          `INSTAGRAM_ACCESS_TOKEN=${data.access_token}`
+        )
+      );
+    }
+  } catch {
+    console.warn("Refreshed token could not be persisted to .env");
+  }
+
+  const validDays = Math.round((data.expires_in ?? 0) / 86400);
+  console.log(`Instagram token refreshed (valid ~${validDays} days)`);
+};
+
+export type PublishImageOptions = {
+  imageUrl: string;
+  caption?: string;
+  story?: boolean;
+};
+
+// Two-step Content Publishing flow: create a media container, wait until
+// Instagram finishes ingesting the image, then publish it.
+export const publishInstagramImage = async (
+  options: PublishImageOptions
+): Promise<string> => {
+  const { instagramUserId } = resolveInstagramEnv();
+
+  const container = await graphPost(`${instagramUserId}/media`, {
+    image_url: options.imageUrl,
+    ...(options.story
+      ? { media_type: "STORIES" }
+      : options.caption
+        ? { caption: options.caption }
+        : {}),
+  });
+
+  const containerId = String(container.id);
+
+  for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt += 1) {
+    const status = await getContainerStatus(containerId);
+    if (status === "FINISHED") break;
+    if (status === "ERROR") {
+      throw new Error("Instagram could not process the uploaded image");
+    }
+    await sleep(CONTAINER_POLL_DELAY_MS);
+  }
+
+  const published = await graphPost(`${instagramUserId}/media_publish`, {
+    creation_id: containerId,
+  });
+
+  return String(published.id);
 };
