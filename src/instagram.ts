@@ -79,19 +79,25 @@ export const refreshInstagramToken = async (): Promise<void> => {
   process.env.INSTAGRAM_ACCESS_TOKEN = data.access_token;
 
   try {
-    const envFile = Bun.file(ENV_FILE_URL);
-    if (await envFile.exists()) {
-      const text = await envFile.text();
-      await Bun.write(
-        ENV_FILE_URL,
-        text.replace(
-          /^INSTAGRAM_ACCESS_TOKEN=.*$/m,
-          `INSTAGRAM_ACCESS_TOKEN=${data.access_token}`
-        )
-      );
+    const tokenFile = process.env.INSTAGRAM_TOKEN_FILE;
+    if (tokenFile) {
+      // Container mode: the token lives on a volume and survives redeploys.
+      await Bun.write(tokenFile, data.access_token);
+    } else {
+      const envFile = Bun.file(ENV_FILE_URL);
+      if (await envFile.exists()) {
+        const text = await envFile.text();
+        await Bun.write(
+          ENV_FILE_URL,
+          text.replace(
+            /^INSTAGRAM_ACCESS_TOKEN=.*$/m,
+            `INSTAGRAM_ACCESS_TOKEN=${data.access_token}`
+          )
+        );
+      }
     }
   } catch {
-    console.warn("Refreshed token could not be persisted to .env");
+    console.warn("Refreshed token could not be persisted");
   }
 
   const validDays = Math.round((data.expires_in ?? 0) / 86400);
