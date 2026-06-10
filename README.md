@@ -33,3 +33,11 @@ bun run create:instagram-story <dateFrom> <dateTo> [numberOfCandidates] [minScor
 4. `src/publish.ts` — rezerwuje kandydata, wrzuca obraz do własnego API (`POST /socials/image`, publiczny `GET /socials/image/:id`), odświeża token Instagrama (zapisując nowy do `.env`), publikuje przez Graph API (kontener → `media_publish`) i oznacza kandydata jako opublikowanego.
 
 Skrypty wywołane bez argumentów same liczą zakres dat (czas warszawski): post = najbliższe 7 dni, story = dziś–jutro — wystarczy cron z `bun run create:instagram-post` / `create:instagram-story`.
+
+## Deploy
+
+Push do `main` automatycznie buduje obraz Dockera (GHCR) i wdraża go na VPS (`.github/workflows/deploy.yml`). Kontener to długo żyjący scheduler (`src/scripts/cron.ts`, croner): publikuje post wg `IG_POST_CRON` (domyślnie 11:30) i story wg `IG_STORY_CRON` (domyślnie 8:30), czas Europe/Warsaw.
+
+Odświeżony token Instagrama trzymany jest w pliku na wolumenie (`INSTAGRAM_TOKEN_FILE=/data/instagram-token`) i przeżywa redeploye — sekret `INSTAGRAM_ACCESS_TOKEN` zasiewa tylko pierwszy start.
+
+Wymagane sekrety repo: `SERVER_IP`, `SERVER_USER`, `SERVER_SSH_KEY`, `PROJECT_DIR`, `GHCR_PAT`, `IMAGE_NAME` (np. `ghcr.io/klaps-hq/klaps.radar`), `API_URL`, `INTERNAL_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`, `IG_POST_CRON`, `IG_STORY_CRON`.
