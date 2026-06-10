@@ -51,7 +51,10 @@ const uploadTemporaryImage = async (imageBuffer: Buffer): Promise<string> => {
   return `${API_URL}/socials/image/${id}`;
 };
 
-const buildCaption = (screening: Screening): string => {
+const buildCaption = (
+  screening: Screening,
+  options?: { hashtags?: boolean }
+): string => {
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
 
@@ -64,8 +67,9 @@ const buildCaption = (screening: Screening): string => {
       : []),
     "",
     "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
-    "",
-    "#klaps #kino #kinostudyjne #seans #film #klasykakina",
+    ...(options?.hashtags === false
+      ? []
+      : ["", "#klaps #kino #kinostudyjne #seans #film #klasykakina"]),
   ].join("\n");
 };
 
@@ -115,10 +119,12 @@ export const createSocialMedia = async (
       break;
     case "threads_post":
       await refreshThreadsToken();
-      // Threads caps post text at 500 characters.
+      // Threads caps post text at 500 characters and honours only a single
+      // tag per post, so hashtags would be dead weight that pushes the
+      // caption over the limit.
       mediaId = await publishThreadsImage({
         imageUrl,
-        text: truncateText(buildCaption(candidate), 490),
+        text: truncateText(buildCaption(candidate, { hashtags: false }), 490),
       });
       break;
     default:
