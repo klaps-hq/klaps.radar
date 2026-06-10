@@ -1,0 +1,81 @@
+name: PR Conventions
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [dev, main]
+
+concurrency:
+  group: pr-conventions-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: PR Title (Conventional)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          REGEX='^(feat|fix|chore|docs|refactor|test|ci|perf|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          BASE_REF_LC="${BASE_REF,,}"
+          HEAD_REF_LC="${HEAD_REF,,}"
+
+          if [[ "$BASE_REF_LC" == "main" && "$HEAD_REF_LC" == "dev" ]]; then
+            echo "Skipping strict title validation for dev -> main release PR."
+            echo "Auto-title workflow will enforce: 'chore: merge dev into main'."
+            exit 0
+          fi
+
+          if [[ ! "$PR_TITLE" =~ $REGEX ]]; then
+            echo "Invalid PR title: '$PR_TITLE'"
+            echo "Expected Conventional Commits format, e.g. 'feat(scope): add thing'"
+            echo "Allowed types: feat, fix, chore, docs, refactor, test, ci, perf, revert"
+            exit 1
+          fi
+
+          echo "PR title is valid."
+
+  commit-messages:
+    name: Commit Messages (Conventional)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          REGEX='^(feat|fix|chore|docs|refactor|test|ci|perf|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          INVALID=0
+
+          while IFS= read -r SUBJECT; do
+            [[ -z "$SUBJECT" ]] && continue
+            [[ "$SUBJECT" == Merge\ * ]] && continue
+
+            if [[ ! "$SUBJECT" =~ $REGEX ]]; then
+              echo "Invalid commit subject: '$SUBJECT'"
+              INVALID=1
+            fi
+          done < <(git log --no-merges --format=%s "${BASE_SHA}..${HEAD_SHA}")
+
+          if [[ "$INVALID" -ne 0 ]]; then
+            echo "One or more commit messages are not Conventional Commits."
+            echo "Allowed types: feat, fix, chore, docs, refactor, test, ci, perf, revert"
+            exit 1
+          fi
+
+          echo "All commit messages are valid."

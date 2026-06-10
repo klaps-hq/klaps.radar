@@ -1,0 +1,16 @@
+services:
+  klaps-radar:
+    image: ${IMAGE_NAME}:${IMAGE_TAG:-latest}
+    container_name: ${CONTAINER_NAME:-klaps-radar}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The refreshed Instagram token lives on the volume, surviving
+      # redeploys; INSTAGRAM_ACCESS_TOKEN from .env only seeds the first run.
+      - INSTAGRAM_TOKEN_FILE=/data/instagram-token
+    volumes:
+      - radar_data:/data
+
+volumes:
+  radar_data:

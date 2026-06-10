@@ -58,8 +58,27 @@ export const resolveCandidateApiEnv = (): CandidateApiEnv => {
   };
 };
 
+// In containers the refreshed token outlives any single deploy by living in
+// a file on a volume; the env var only seeds the very first run.
+const readTokenFromFile = (): string | undefined => {
+  const tokenFile = process.env.INSTAGRAM_TOKEN_FILE;
+  if (!tokenFile) {
+    return undefined;
+  }
+
+  try {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const token = readFileSync(tokenFile, "utf8").trim();
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export const resolveInstagramEnv = (): InstagramEnv => {
-  const accessToken = normalizeAccessToken(process.env.INSTAGRAM_ACCESS_TOKEN);
+  const accessToken = normalizeAccessToken(
+    readTokenFromFile() ?? process.env.INSTAGRAM_ACCESS_TOKEN
+  );
   const instagramUserId = normalizeEnvValue(process.env.INSTAGRAM_USER_ID);
   const missing = getMissingVars({
     INSTAGRAM_ACCESS_TOKEN: accessToken,

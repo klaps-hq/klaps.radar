@@ -1,0 +1,93 @@
+name: Auto PR Title
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  rename-pr:
+    name: Auto-format PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update PR title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conventionalRegex = /^(feat|fix|chore|docs|refactor|test|ci|perf|revert)(\([a-z0-9._/-]+\))?(!)?: .+/;
+            const pr = context.payload.pull_request;
+            const pull_number = pr.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const baseRef = (pr.base?.ref || "").toLowerCase();
+            const headRef = (pr.head?.ref || "").toLowerCase();
+
+            const isDevToMain = baseRef === "main" && headRef === "dev";
+            let desiredTitle = "";
+
+            if (isDevToMain) {
+              desiredTitle = "chore: merge dev into main";
+            } else {
+              if (conventionalRegex.test(pr.title || "")) {
+                core.info(`PR title is already conventional: ${pr.title}`);
+                return;
+              }
+
+              const typeRules = [
+                { pattern: /^(feature|feat)[-/]/, type: "feat" },
+                { pattern: /^(fix|bugfix|hotfix)[-/]/, type: "fix" },
+                { pattern: /^(chore|maintenance)[-/]/, type: "chore" },
+                { pattern: /^(docs|doc)[-/]/, type: "docs" },
+                { pattern: /^(refactor|cleanup)[-/]/, type: "refactor" },
+                { pattern: /^(test|tests)[-/]/, type: "test" },
+                { pattern: /^(ci|build)[-/]/, type: "ci" },
+                { pattern: /^(perf|performance)[-/]/, type: "perf" },
+              ];
+
+              const rawHeadRef = pr.head?.ref || "";
+              let normalizedBranch = rawHeadRef.replace(/_/g, "-").toLowerCase();
+
+              let type = "feat";
+              for (const rule of typeRules) {
+                if (rule.pattern.test(normalizedBranch)) {
+                  type = rule.type;
+                  normalizedBranch = normalizedBranch.replace(rule.pattern, "");
+                  break;
+                }
+              }
+
+              const ticketMatch = normalizedBranch.match(/^([a-z]+)-(\d+)(?:-|$)/i);
+              let ticket = "";
+              if (ticketMatch) {
+                ticket = `${ticketMatch[1].toUpperCase()}-${ticketMatch[2]}`;
+                normalizedBranch = normalizedBranch.slice(ticketMatch[0].length);
+              }
+
+              let description = normalizedBranch
+                .replace(/[\/-]+/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+
+              if (!description) {
+                description = "update changes";
+              }
+
+              description = description.charAt(0).toUpperCase() + description.slice(1);
+              const ticketSuffix = ticket ? ` (${ticket})` : "";
+              desiredTitle = `${type}: ${description}${ticketSuffix}`;
+            }
+
+            if (pr.title === desiredTitle) {
+              core.info(`PR title already up to date: ${desiredTitle}`);
+              return;
+            }
+
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number,
+              title: desiredTitle,
+            });
