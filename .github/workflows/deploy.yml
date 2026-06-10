@@ -105,6 +105,8 @@ jobs:
             FB_POST_CRON=${{ secrets.FB_POST_CRON }}
             FB_STORY_CRON=${{ secrets.FB_STORY_CRON }}
             THREADS_POST_CRON=${{ secrets.THREADS_POST_CRON }}
+            STORIES_PER_DAY=${{ secrets.STORIES_PER_DAY }}
+            PUBLISH_JITTER_MINUTES=${{ secrets.PUBLISH_JITTER_MINUTES }}
             IMAGE_NAME=${{ secrets.IMAGE_NAME }}
             IMAGE_TAG=latest
             CONTAINER_NAME=klaps-radar-prod
