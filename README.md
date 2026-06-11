@@ -95,13 +95,20 @@ The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill it in:
 
 ```env
 API_URL=http://localhost:5000/api/v2
 INTERNAL_API_KEY=your-secret-api-key
+
 INSTAGRAM_ACCESS_TOKEN=your-instagram-token
 INSTAGRAM_USER_ID=your-instagram-user-id
+
+FACEBOOK_PAGE_ID=your-facebook-page-id
+FACEBOOK_PAGE_ACCESS_TOKEN=your-facebook-page-token
+
+THREADS_USER_ID=your-threads-user-id
+THREADS_ACCESS_TOKEN=your-threads-token
 ```
 
 | Variable                     | Required | Description                                                          |
