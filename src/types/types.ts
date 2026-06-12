@@ -5,18 +5,18 @@ export type Platform =
   | "facebook_story"
   | "threads_post";
 
-export type ScreeningCity = {
+type ScreeningCity = {
   name: string;
   voivodeship: string | null;
 };
 
-export type ScreeningCinema = {
+type ScreeningCinema = {
   name: string;
   street: string;
   city: ScreeningCity;
 };
 
-export type ScreeningMovie = {
+type ScreeningMovie = {
   title: string;
   description: string | null;
   productionYear: number;
