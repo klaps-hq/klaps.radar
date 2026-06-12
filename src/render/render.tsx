@@ -27,12 +27,12 @@ const loadFonts = (): Promise<SatoriFont[]> => {
 // The DB stores TMDB paths ("/abc.jpg"), not full URLs. Full "original"
 // resolution: the story card is ~1700px tall, so sized variants (w1280)
 // would be upscaled and soft.
-export const resolveImageUrl = (value: string): string =>
+const resolveImageUrl = (value: string): string =>
   value.startsWith("/") ? `https://image.tmdb.org/t/p/original${value}` : value;
 
 // Satori does not fetch remote images and sharp will not resolve network
 // hrefs in the SVG, so every image is inlined as a data URL.
-export const fetchImageAsDataUrl = async (
+const fetchImageAsDataUrl = async (
   url: string
 ): Promise<string | null> => {
   const response = await fetch(url, {
@@ -48,7 +48,7 @@ export const fetchImageAsDataUrl = async (
   return `data:${contentType};base64,${buffer.toString("base64")}`;
 };
 
-export const renderElementToJpeg = async (
+const renderElementToJpeg = async (
   element: Parameters<typeof satori>[0],
   size: { width: number; height: number }
 ): Promise<Buffer> => {
