@@ -54,17 +54,22 @@ const uploadTemporaryImage = async (imageBuffer: Buffer): Promise<string> => {
 
 const buildCaption = (
   screening: Screening,
-  options?: { hashtags?: boolean }
+  options?: { hashtags?: boolean; mentionCinema?: boolean }
 ): string => {
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
+  // An @mention links only on Instagram; elsewhere it would be noise.
+  const cinemaName =
+    options?.mentionCinema && cinema.instagramUsername
+      ? `${cinema.name} (@${cinema.instagramUsername})`
+      : cinema.name;
 
   return [
     buildHook(screening),
     "",
     `${movie.title} (${movie.productionYear})`,
     `${formatPolishDate(date)}${time ? `, godz. ${time}` : ""}`,
-    `${cinema.name}, ${cinema.street}, ${cinema.city.name}`,
+    `${cinemaName}, ${cinema.street}, ${cinema.city.name}`,
     ...(movie.description
       ? ["", truncateText(movie.description, 350)]
       : []),
@@ -129,13 +134,24 @@ export const createSocialMedia = async (
         text: truncateText(buildCaption(candidate, { hashtags: false }), 490),
       });
       break;
-    default:
+    default: {
       await refreshInstagramToken();
+      const { instagramUsername, instagramCollab, facebookPlaceId } =
+        candidate.cinema;
       mediaId = await publishInstagramImage({
         imageUrl,
         story: isStory,
-        caption: isStory ? undefined : buildCaption(candidate),
+        caption: isStory
+          ? undefined
+          : buildCaption(candidate, { mentionCinema: true }),
+        userTags: instagramUsername ? [instagramUsername] : undefined,
+        collaborators:
+          instagramUsername && instagramCollab
+            ? [instagramUsername]
+            : undefined,
+        locationId: facebookPlaceId ?? undefined,
       });
+    }
   }
 
   await markCandidateAsPublished(candidate.id, platform);
