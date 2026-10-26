@@ -254,6 +254,39 @@ export const cardScene = (
   };
 };
 
+// Single-film reel hook ("Klasyka tygodnia", "Seans na niedzielę"): the
+// series, the title, year and running time, and the Filmweb rating when
+// it is worth showing.
+const RATING_SHOWN_FROM = 7;
+
+export const spotlightHookScene = (
+  screening: Screening,
+  series: string,
+  imageUrl: string | null,
+  start: number,
+  end: number
+): Scene => {
+  const { movie } = screening;
+  const facts = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
+  const rating =
+    movie.usersRating && movie.usersRating >= RATING_SHOWN_FROM
+      ? `Filmweb ${movie.usersRating.toFixed(1).replace(".", ",")} / 10`
+      : null;
+  return {
+    start,
+    end,
+    textAt: start + TEXT_DELAY_S,
+    base: <CardBase imageUrl={imageUrl} />,
+    lines: [
+      <Eyebrow key="e" text={series} />,
+      <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
+      <Rule key="r" />,
+      <Big key="b" text={facts} />,
+      ...(rating ? [<Small key="s" text={rating} />] : []),
+    ],
+  };
+};
+
 // "rok", "lata", "lat": Polish plural of years (12-14 take "lat").
 const yearsWord = (n: number): string => {
   if (n === 1) return "rok";
@@ -285,8 +318,10 @@ export const anniversaryHookScene = (
   ],
 });
 
-export const anniversaryCardScene = (
+// Where and when, for the single-film reels.
+export const screeningCardScene = (
   screening: Screening,
+  eyebrow: string,
   imageUrl: string | null,
   start: number,
   end: number
@@ -299,7 +334,7 @@ export const anniversaryCardScene = (
     textAt: start + TEXT_DELAY_S,
     base: <CardBase imageUrl={imageUrl} meta={cinema.city.name} />,
     lines: [
-      <Eyebrow key="e" text="Wraca na duży ekran" />,
+      <Eyebrow key="e" text={eyebrow} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
       <Rule key="r" />,
       <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,

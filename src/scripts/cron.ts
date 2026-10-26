@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { isFacebookConfigured } from "../facebook";
 import { createSocialMedia } from "../publish";
 import { isThreadsConfigured } from "../threads";
+import { reelRange, type ReelKind } from "../reels";
 import type { Platform } from "../types/types";
 import { addDays, todayInPoland } from "../utils/format";
 
@@ -17,7 +18,11 @@ const TIMEZONE = "Europe/Warsaw";
 // late morning (Mon, Fri, Sun), reels in the evening (Tue, Thu, Sat) and
 // the weekly line-up carousel on Wednesday, ahead of the weekend.
 const POST_CRON = process.env.IG_POST_CRON || "30 11 * * 0,1,5";
-const REEL_CRON = process.env.IG_REEL_CRON || "30 18 * * 2,4,6";
+// Reel series: "Klasyka tygodnia" on Tuesday, "Weekend w kinie" on
+// Thursday, "Seans na niedzielę" on Saturday (src/reels.ts).
+const REEL_CLASSIC_CRON = process.env.IG_REEL_CLASSIC_CRON || "30 18 * * 2";
+const REEL_WEEKEND_CRON = process.env.IG_REEL_WEEKEND_CRON || "30 18 * * 4";
+const REEL_SUNDAY_CRON = process.env.IG_REEL_SUNDAY_CRON || "30 18 * * 6";
 const CAROUSEL_CRON = process.env.IG_CAROUSEL_CRON || "30 11 * * 3";
 const STORY_CRON = process.env.IG_STORY_CRON || "30 8,17 * * *";
 const FB_POST_CRON = process.env.FB_POST_CRON || "0 13 * * *";
@@ -35,7 +40,8 @@ const JITTER_MINUTES = parseInt(process.env.PUBLISH_JITTER_MINUTES || "0", 10);
 const runJob = async (
   platform: Platform,
   daysAhead: number,
-  maxPosts?: number
+  maxPosts?: number,
+  reelKind?: ReelKind
 ) => {
   if (JITTER_MINUTES > 0) {
     const delayMs = Math.floor(Math.random() * JITTER_MINUTES * 60_000);
@@ -45,8 +51,10 @@ const runJob = async (
     await sleep(delayMs);
   }
 
-  const dateFrom = todayInPoland();
-  const dateTo = addDays(dateFrom, daysAhead);
+  const today = todayInPoland();
+  const { dateFrom, dateTo } = reelKind
+    ? reelRange(reelKind, today)
+    : { dateFrom: today, dateTo: addDays(today, daysAhead) };
 
   console.log(`[${platform}] run for ${dateFrom}..${dateTo}`);
 
@@ -57,6 +65,7 @@ const runJob = async (
       minScore: 30,
       numberOfCandidates: 30,
       maxPosts,
+      reelKind,
     });
   } catch (error) {
     // Never crash the scheduler - a failed day is just a skipped day.
@@ -65,8 +74,15 @@ const runJob = async (
 };
 
 new Cron(POST_CRON, { timezone: TIMEZONE }, () => runJob("instagram_post", 6));
-// The reel covers the next few days, the Wednesday carousel the whole week.
-new Cron(REEL_CRON, { timezone: TIMEZONE }, () => runJob("instagram_reel", 3));
+new Cron(REEL_CLASSIC_CRON, { timezone: TIMEZONE }, () =>
+  runJob("instagram_reel", 0, undefined, "classic")
+);
+new Cron(REEL_WEEKEND_CRON, { timezone: TIMEZONE }, () =>
+  runJob("instagram_reel", 0, undefined, "weekend")
+);
+new Cron(REEL_SUNDAY_CRON, { timezone: TIMEZONE }, () =>
+  runJob("instagram_reel", 0, undefined, "sunday")
+);
 new Cron(CAROUSEL_CRON, { timezone: TIMEZONE }, () =>
   runJob("instagram_carousel", 6)
 );
@@ -98,5 +114,5 @@ if (isThreadsConfigured()) {
 }
 
 console.log(
-  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-reel: "${REEL_CRON}", ig-carousel: "${CAROUSEL_CRON}", ig-story: "${STORY_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
+  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-reels: "${REEL_CLASSIC_CRON}" / "${REEL_WEEKEND_CRON}" / "${REEL_SUNDAY_CRON}", ig-carousel: "${CAROUSEL_CRON}", ig-story: "${STORY_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
 );

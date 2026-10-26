@@ -9,29 +9,19 @@ import {
 import { publishThreadsImage, refreshThreadsToken } from "./threads";
 import { API_URL, INTERNAL_API_KEY } from "./constants/env";
 import { renderCarouselImages, renderScreeningImage } from "./render/render";
-import { renderLineupReel } from "./render/video";
-import { preferTextlessArt } from "./media/tmdb";
+import { planReel, renderReelPlan, MIN_LINEUP_SCREENINGS, type ReelKind, type ReelPlan } from "./reels";
 import type {
   FetchCandidateConfig,
   Platform,
   Screening,
 } from "./types/types";
-import {
-  buildCarouselCaption,
-  buildHashtags,
-  buildHook,
-  pluralSeans,
-} from "./utils/caption";
+import { buildCaption, buildCarouselCaption } from "./utils/caption";
 import {
   fetchCandidate,
   markCandidateAsPublished,
   reserveCandidate,
 } from "./utils/candidate";
-import {
-  formatPolishDate,
-  splitScreeningDate,
-  truncateText,
-} from "./utils/format";
+import { truncateText } from "./utils/format";
 import { pickWeeklyLineup } from "./utils/lineup";
 
 // Fewer than this and the weekly carousel is skipped for the week.
@@ -74,66 +64,6 @@ const uploadTemporaryMedia = async (
   return `${API_URL}/socials/image/${id}`;
 };
 
-const buildCaption = (
-  screening: Screening,
-  options?: { hashtags?: boolean; mentionCinema?: boolean }
-): string => {
-  const { movie, cinema } = screening;
-  const { date, time } = splitScreeningDate(screening.date);
-  // An @mention links only on Instagram; elsewhere it would be noise.
-  const cinemaName =
-    options?.mentionCinema && cinema.instagramUsername
-      ? `${cinema.name} (@${cinema.instagramUsername})`
-      : cinema.name;
-
-  return [
-    buildHook(screening),
-    "",
-    `${movie.title} (${movie.productionYear})`,
-    `${formatPolishDate(date)}${time ? `, godz. ${time}` : ""}`,
-    `${cinemaName}, ${cinema.street}, ${cinema.city.name}`,
-    ...(movie.description
-      ? ["", truncateText(movie.description, 350)]
-      : []),
-    "",
-    "Oznacz osobę, z którą chcesz iść na ten seans.",
-    "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
-    ...(options?.hashtags === false ? [] : ["", buildHashtags(screening)]),
-  ].join("\n");
-};
-
-// Screenings in the line-up reel: few enough that each card can be read.
-const REEL_LINEUP_SIZE = 4;
-
-const formatDayMonth = (screening: Screening): string => {
-  const [, m, d] = splitScreeningDate(screening.date).date.split("-");
-  return `${Number(d)}.${m}`;
-};
-
-// Line-up reel for the coming days: picks the screenings (movies with
-// textless key art first, since posters fill the screen), renders the
-// video and writes the caption. Shared with the preview script.
-export const prepareLineupReel = async (candidates: Screening[]) => {
-  const lineup = pickWeeklyLineup(
-    await preferTextlessArt(candidates),
-    REEL_LINEUP_SIZE
-  );
-  const first = lineup[0]!;
-  const last = lineup.at(-1)!;
-  const span =
-    formatDayMonth(first) === formatDayMonth(last)
-      ? formatDayMonth(first)
-      : `${formatDayMonth(first)} – ${formatDayMonth(last)}`;
-  const count = `${lineup.length} ${pluralSeans(lineup.length)}`;
-  const hookLines: [string, string] = ["Najbliższe dni w kinie", `${count} · ${span}`];
-  const video = await renderLineupReel(lineup, hookLines, candidates[0] ?? first);
-  const caption = buildCarouselCaption(
-    lineup,
-    `Najbliższe dni w kinach studyjnych: ${count}, które warto zobaczyć na dużym ekranie`
-  );
-  return { lineup, video, caption };
-};
-
 // The Instagram feed caption, exposed for the design preview script.
 export const buildCaptionPreview = (screening: Screening): string =>
   buildCaption(screening, { mentionCinema: true });
@@ -155,23 +85,24 @@ const publishToPlatform = async (
   platform: Platform,
   candidate: Screening,
   candidates: Screening[],
-  range: { dateFrom: string; dateTo: string }
+  range: { dateFrom: string; dateTo: string },
+  reelPlan?: ReelPlan
 ): Promise<{ mediaId: string; mediaUrl: string }> => {
   switch (platform) {
     case "instagram_reel": {
       await refreshInstagramToken();
-      const reel = await prepareLineupReel(candidates);
+      const reel = await renderReelPlan(reelPlan!);
       const videoUrl = await uploadTemporaryMedia(reel.video, "video");
-      // Reels take user tags and collaborators like posts; the cinemas of
-      // the line-up are tagged (up to Instagram's limits), no location.
+      // Reels take user tags and collaborators like posts; the cinemas in
+      // the reel are tagged (up to Instagram's limits), no location.
       const usernames = [
         ...new Set(
-          reel.lineup
+          reel.tagged
             .map((s) => s.cinema.instagramUsername)
             .filter((u): u is string => Boolean(u))
         ),
       ];
-      const collaborators = reel.lineup
+      const collaborators = reel.tagged
         .filter((s) => s.cinema.instagramUsername && s.cinema.instagramCollab)
         .map((s) => s.cinema.instagramUsername!);
       const mediaId = await publishInstagramReel({
@@ -258,10 +189,11 @@ const publishToPlatform = async (
 
 export const createSocialMedia = async (
   platform: Platform,
-  config: Omit<FetchCandidateConfig, "platform">
+  config: Omit<FetchCandidateConfig, "platform"> & { reelKind?: ReelKind }
 ): Promise<void> => {
-  const response = await fetchCandidate({ ...config, platform });
-  const candidate = response.candidates[0];
+  const { reelKind, ...query } = config;
+  const response = await fetchCandidate({ ...query, platform });
+  let candidate = response.candidates[0];
 
   // A no-op is not a failure: the range may already have a published post
   // (dedupe) or simply no screening clears the quality bar today.
@@ -277,13 +209,28 @@ export const createSocialMedia = async (
   }
 
   if (
-    (platform === "instagram_carousel" || platform === "instagram_reel") &&
+    platform === "instagram_carousel" &&
     pickWeeklyLineup(response.candidates).length < MIN_CAROUSEL_SCREENINGS
   ) {
     console.log(
       `Skipping ${platform}: fewer than ${MIN_CAROUSEL_SCREENINGS} distinct screenings this week`
     );
     return;
+  }
+
+  // A reel picks its own film (or line-up) for its series; that screening
+  // is the one reserved.
+  let reelPlan: ReelPlan | undefined;
+  if (platform === "instagram_reel") {
+    const plan = await planReel(reelKind ?? "weekend", response.candidates);
+    if (!plan) {
+      console.log(
+        `Skipping ${platform} (${reelKind}): fewer than ${MIN_LINEUP_SCREENINGS} distinct screenings`
+      );
+      return;
+    }
+    reelPlan = plan;
+    candidate = plan.featured;
   }
 
   // Reserve before publishing so a re-run cannot post the same screening
@@ -295,7 +242,8 @@ export const createSocialMedia = async (
     platform,
     candidate,
     response.candidates,
-    { dateFrom: response.date.from, dateTo: response.date.to }
+    { dateFrom: response.date.from, dateTo: response.date.to },
+    reelPlan
   );
 
   await markCandidateAsPublished(candidate.id, platform);

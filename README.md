@@ -74,14 +74,16 @@ assets/                  # Fonts used by satori
 
 ## Scheduling
 
-The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https://github.com/hexagon/croner), Europe/Warsaw). Posts are staggered across platforms so followers do not see the same artwork everywhere at once; stories run two slots a day within a single cron expression. The Instagram feed gets one item a day in rotating formats: image posts, line-up reels (four screenings of the next few days as poster cards cut on the beat of a genre-matched music bed, rendered with ffmpeg) and a weekly carousel of the five best screenings, at most two per city. Feed formats share one 30-day movie cooldown in the API.
+The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https://github.com/hexagon/croner), Europe/Warsaw). Posts are staggered across platforms so followers do not see the same artwork everywhere at once; stories run two slots a day within a single cron expression. The Instagram feed gets one item a day in rotating formats: image posts, three weekly reel series (src/reels.ts: a classic or premiere anniversary on Tuesday, the weekend line-up on Thursday, a film for Sunday on Saturday) built from klaps cards over posters, changing on the beat of a genre-matched music bed and ending on its final hit, rendered frame by frame with ffmpeg and a weekly carousel of the five best screenings, at most two per city. Feed formats share one 30-day movie cooldown in the API.
 
 | Job             | Variable            | Default          | Fires at    |
 | --------------- | ------------------- | ---------------- | ----------- |
 | Instagram story | `IG_STORY_CRON`     | `30 8,17 * * *`  | 8:30, 17:30 |
 | Facebook story  | `FB_STORY_CRON`     | `45 8,17 * * *`  | 8:45, 17:45 |
 | Instagram post  | `IG_POST_CRON`      | `30 11 * * 0,1,5` | Mon, Fri, Sun 11:30 |
-| Instagram reel  | `IG_REEL_CRON`      | `30 18 * * 2,4,6` | Tue, Thu, Sat 18:30 (next 3 days) |
+| Reel "Klasyka tygodnia" | `IG_REEL_CLASSIC_CRON` | `30 18 * * 2` | Tue 18:30 (an older film this week, or a premiere anniversary) |
+| Reel "Weekend w kinie" | `IG_REEL_WEEKEND_CRON` | `30 18 * * 4` | Thu 18:30 (line-up Fri-Sun) |
+| Reel "Seans na niedzielę" | `IG_REEL_SUNDAY_CRON` | `30 18 * * 6` | Sat 18:30 (one film on Sunday) |
 | Instagram carousel | `IG_CAROUSEL_CRON` | `30 11 * * 3`  | Wed 11:30 (weekly line-up) |
 | Facebook post   | `FB_POST_CRON`      | `0 13 * * *`     | 13:00       |
 | Threads post    | `THREADS_POST_CRON` | `30 18 * * *`    | 18:30       |

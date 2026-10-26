@@ -92,15 +92,92 @@ const renderElement = async (
 
 // Portrait cards prefer TMDB's textless key art, which is composed for a
 // vertical frame; landscape slots (carousel strips) keep the backdrop.
+// Some key art on TMDB is a cut-out: a figure on a transparent or flat
+// white ground, or a tilted print with an empty band along an edge. Full
+// frame, it reads as a pasted sticker, so such art is skipped for the next
+// image. Dark corners alone are common in real artwork and do not count.
+const CORNER = 0.06;
+const EDGE_BAND = 0.12;
+
+type Region = { left: number; top: number; width: number; height: number };
+
+// Mean brightness and the largest channel spread of a region. stats()
+// reads the input, not the pipeline, so the region is cut out first.
+const regionStats = async (image: Buffer, region: Region) => {
+  const part = await sharp(image).extract(region).removeAlpha().toBuffer();
+  const { channels } = await sharp(part).stats();
+  return {
+    mean: channels.reduce((sum, c) => sum + c.mean, 0) / channels.length,
+    spread: Math.max(...channels.map((c) => c.stdev)),
+  };
+};
+
+const isCutout = async (image: Buffer): Promise<boolean> => {
+  const meta = await sharp(image).metadata();
+  if (meta.hasAlpha) {
+    const { channels } = await sharp(image).stats();
+    if ((channels[3]?.mean ?? 255) < 250) return true;
+  }
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  if (!w || !h) return false;
+
+  const size = Math.max(8, Math.round(Math.min(w, h) * CORNER));
+  let white = 0;
+  for (const [left, top] of [[0, 0], [w - size, 0], [0, h - size], [w - size, h - size]]) {
+    const { mean, spread } = await regionStats(image, { left: left!, top: top!, width: size, height: size });
+    if (mean > 243 && spread < 4) white += 1;
+  }
+  if (white >= 3) return true;
+
+  const bw = Math.round(w * EDGE_BAND);
+  const bh = Math.round(h * EDGE_BAND);
+  const bands: Region[] = [
+    { left: 0, top: 0, width: w, height: bh },
+    { left: 0, top: h - bh, width: w, height: bh },
+    { left: 0, top: 0, width: bw, height: h },
+    { left: w - bw, top: 0, width: bw, height: h },
+  ];
+  for (const band of bands) {
+    const { mean, spread } = await regionStats(image, band);
+    if (mean < 14 && spread < 8) return true;
+  }
+  return false;
+};
+
+// The first usable image among textless key art and the given fallbacks
+// (cut-outs skipped); if all are cut-outs, the first that loads.
+const fetchKeyArt = async (
+  screening: Screening,
+  fallbacks: (string | null | undefined)[],
+  size?: string
+): Promise<Buffer | null> => {
+  const art = await getMovieArt(screening.movie);
+  const paths = [art.textlessPoster, ...fallbacks].filter(
+    (p, i, all): p is string => Boolean(p) && all.indexOf(p) === i
+  );
+  let first: Buffer | null = null;
+  for (const path of paths) {
+    const image = await fetchImageBuffer(resolveImageUrl(path, size));
+    if (!image) continue;
+    if (!(await isCutout(image))) return image;
+    first ??= image;
+  }
+  return first;
+};
+
 const fetchScreeningImage = async (
   screening: Screening,
   box: Box,
   size?: string
 ): Promise<string | null> => {
   const portrait = box.height > box.width;
-  const art = portrait ? await getMovieArt(screening.movie) : null;
-  const path = art?.textlessPoster ?? getScreeningImagePath(screening);
-  const image = path ? await fetchImageBuffer(resolveImageUrl(path, size)) : null;
+  const fallback = getScreeningImagePath(screening);
+  const image = portrait
+    ? await fetchKeyArt(screening, [fallback, screening.movie.backdropUrl], size)
+    : fallback
+      ? await fetchImageBuffer(resolveImageUrl(fallback, size))
+      : null;
   return image ? cropToBox(image, box) : null;
 };
 
@@ -120,12 +197,8 @@ export const renderScreeningImage = async (
 // a vertical frame and hold up full screen, while TMDB stills are often low
 // resolution or landscape promo art. Textless key art first, then the
 // poster from our DB, then a backdrop as the last resort.
-const fetchReelPoster = async (screening: Screening): Promise<Buffer | null> => {
-  const art = await getMovieArt(screening.movie);
-  const path =
-    art.textlessPoster ?? screening.movie.posterUrl ?? screening.movie.backdropUrl;
-  return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
-};
+const fetchReelPoster = (screening: Screening): Promise<Buffer | null> =>
+  fetchKeyArt(screening, [screening.movie.posterUrl, screening.movie.backdropUrl]);
 
 // A screening's reel poster cropped to the card (attention-centred) and
 // inlined as a data URL; null when the movie has no image at all.

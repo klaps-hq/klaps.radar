@@ -1,4 +1,10 @@
-import { addDays, splitScreeningDate, todayInPoland } from "./format";
+import {
+  addDays,
+  formatPolishDate,
+  splitScreeningDate,
+  todayInPoland,
+  truncateText,
+} from "./format";
 import type { Screening } from "../types/types";
 
 // Weekday names in the accusative ("w sobotę"), Sunday-first to match getUTCDay().
@@ -98,5 +104,35 @@ export const buildCarouselCaption = (
     "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
     "",
     [...BASE_HASHTAGS, ...cities.map((c) => `#kino${c}`)].join(" "),
+  ].join("\n");
+};
+
+// Caption for a single screening (posts, Facebook, Threads, single-film
+// reels): hook, title, when and where, synopsis, call to action, hashtags.
+export const buildCaption = (
+  screening: Screening,
+  options?: { hashtags?: boolean; mentionCinema?: boolean }
+): string => {
+  const { movie, cinema } = screening;
+  const { date, time } = splitScreeningDate(screening.date);
+  // An @mention links only on Instagram; elsewhere it would be noise.
+  const cinemaName =
+    options?.mentionCinema && cinema.instagramUsername
+      ? `${cinema.name} (@${cinema.instagramUsername})`
+      : cinema.name;
+
+  return [
+    buildHook(screening),
+    "",
+    `${movie.title} (${movie.productionYear})`,
+    `${formatPolishDate(date)}${time ? `, godz. ${time}` : ""}`,
+    `${cinemaName}, ${cinema.street}, ${cinema.city.name}`,
+    ...(movie.description
+      ? ["", truncateText(movie.description, 350)]
+      : []),
+    "",
+    "Oznacz osobę, z którą chcesz iść na ten seans.",
+    "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
+    ...(options?.hashtags === false ? [] : ["", buildHashtags(screening)]),
   ].join("\n");
 };

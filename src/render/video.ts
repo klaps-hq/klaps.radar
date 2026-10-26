@@ -7,8 +7,9 @@ import { detectBeats, type BeatGrid } from "../audio/beats";
 import { MUSIC_PROMPTS, musicFile, pickMood, sfxFile, type Mood } from "../audio/library";
 import type { Screening } from "../types/types";
 import {
-  anniversaryCardScene,
   anniversaryHookScene,
+  screeningCardScene,
+  spotlightHookScene,
   CARD_SIZE,
   cardScene,
   easeInOutSine,
@@ -250,7 +251,21 @@ export const renderAnniversaryReel = async (
   const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
   const specs: SceneSpec[] = [
     { minS: MIN_HOOK_S + 0.4, make: (a, b) => anniversaryHookScene(screening, years, premiere, poster, a, b) },
-    { minS: MIN_CARD_S + 0.4, make: (a, b) => anniversaryCardScene(screening, poster, a, b) },
+    { minS: MIN_CARD_S + 0.4, make: (a, b) => screeningCardScene(screening, "Wraca na duży ekran", poster, a, b) },
+  ];
+  return renderReel(specs, screening, poster);
+};
+
+// Single-film reel for a series ("Klasyka tygodnia", "Seans na niedzielę"):
+// the film over its poster, then where and when it plays.
+export const renderSpotlightReel = async (
+  screening: Screening,
+  series: string
+): Promise<Buffer> => {
+  const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
+  const specs: SceneSpec[] = [
+    { minS: MIN_HOOK_S + 0.4, make: (a, b) => spotlightHookScene(screening, series, poster, a, b) },
+    { minS: MIN_CARD_S + 0.4, make: (a, b) => screeningCardScene(screening, "Na dużym ekranie", poster, a, b) },
   ];
   return renderReel(specs, screening, poster);
 };

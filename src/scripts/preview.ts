@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { buildCaptionPreview, prepareLineupReel } from "../publish";
+import { buildCaptionPreview } from "../publish";
+import { planReel, reelRange, renderReelPlan, type ReelKind } from "../reels";
 import { renderCarouselImages, renderScreeningImage } from "../render/render";
 import type { Screening } from "../types/types";
 import { buildCarouselCaption } from "../utils/caption";
@@ -68,30 +69,72 @@ const loadScreenings = async (): Promise<Screening[]> => {
   return response.candidates;
 };
 
+// Next date (from tomorrow) that falls on weekday `dow` (0 = Sunday).
+const nextWeekday = (from: string, dow: number): string => {
+  for (let i = 1; i <= 7; i += 1) {
+    const d = addDays(from, i);
+    if (new Date(`${d}T12:00:00Z`).getUTCDay() === dow) return d;
+  }
+  return from;
+};
+
+// Each reel series as it would run on its next publish day, from the live
+// candidates for its own date range (read-only).
+const REEL_DAYS: [ReelKind, number][] = [
+  ["classic", 2],
+  ["weekend", 4],
+  ["sunday", 6],
+];
+
+const renderReels = async (fallback: Screening[]) => {
+  const live = process.argv.includes("--live");
+  const out: { kind: ReelKind; day: string; caption: string; size: number }[] = [];
+  for (const [kind, dow] of REEL_DAYS) {
+    const day = nextWeekday(today, dow);
+    const range = reelRange(kind, day);
+    const candidates = live
+      ? (
+          await fetchCandidate({
+            platform: "instagram_post",
+            ...range,
+            minScore: 30,
+            numberOfCandidates: 30,
+            maxPosts: 10,
+          })
+        ).candidates
+      : fallback;
+    const plan = await planReel(kind, candidates, day);
+    if (!plan) {
+      console.log(`reel ${kind}: nothing to show for ${range.dateFrom}..${range.dateTo}`);
+      continue;
+    }
+    const reel = await renderReelPlan(plan);
+    await Bun.write(`previews/reel-${kind}.mp4`, reel.video);
+    out.push({ kind, day, caption: reel.caption, size: reel.video.length });
+  }
+  return out;
+};
+
 const main = async () => {
   const screenings = await loadScreenings();
   const lead = screenings[0];
   if (!lead) throw new Error("No screenings to preview");
   const lineup = pickWeeklyLineup(screenings);
-  // The reel covers the next few days, like the cron job (today + 3).
-  const reelEnd = addDays(today, 3);
-  const nearby = screenings.filter((s) => s.date.slice(0, 10) <= reelEnd);
 
   await mkdir("previews", { recursive: true });
-  const [post, story, reel, carousel] = await Promise.all([
+  const [post, story, carousel] = await Promise.all([
     renderScreeningImage("post", lead),
     renderScreeningImage("story", lead),
-    prepareLineupReel(nearby.length ? nearby : screenings),
     renderCarouselImages(lineup, {
       dateFrom: today,
       dateTo: addDays(today, 6),
     }),
   ]);
+  const reels = await renderReels(screenings);
 
   await Promise.all([
     Bun.write("previews/instagram-post.jpg", post),
     Bun.write("previews/instagram-story.jpg", story),
-    Bun.write("previews/instagram-reel.mp4", reel.video),
     ...carousel.map((slide, i) =>
       Bun.write(`previews/carousel-${i + 1}.jpg`, slide)
     ),
@@ -101,9 +144,7 @@ const main = async () => {
         "=== post ===",
         buildCaptionPreview(lead),
         "",
-        "=== reel ===",
-        reel.caption,
-        "",
+        ...reels.flatMap((r) => [`=== reel ${r.kind} (${r.day}) ===`, r.caption, ""]),
         "=== carousel ===",
         buildCarouselCaption(lineup),
         "",
@@ -112,7 +153,7 @@ const main = async () => {
   ]);
 
   console.log(
-    `Saved previews/: post, story, reel (${reel.lineup.length} screenings, ${(reel.video.length / 1e6).toFixed(1)} MB), ${carousel.length} carousel slides, captions.txt`
+    `Saved previews/: post, story, ${reels.map((r) => `reel-${r.kind} (${r.day}, ${(r.size / 1e6).toFixed(1)} MB)`).join(", ")}, ${carousel.length} carousel slides, captions.txt`
   );
 };
 
