@@ -134,18 +134,31 @@ const createImageContainer = async (
     return String((await graphPost(`${instagramUserId}/media`, base)).id);
   }
 
-  try {
-    const container = await graphPost(`${instagramUserId}/media`, {
-      ...base,
-      ...enrichment,
-    });
-    return String(container.id);
-  } catch (err) {
-    console.warn(
-      `Retrying without tags/location (${Object.keys(enrichment).join(", ")}): ${(err as Error).message}`
-    );
-    return String((await graphPost(`${instagramUserId}/media`, base)).id);
+  // Location is the least certain field, so it is dropped first and the
+  // tags get a second chance on their own.
+  const { location_id: _location, ...tagsOnly } = enrichment;
+  const attempts = [
+    enrichment,
+    ...(enrichment.location_id && Object.keys(tagsOnly).length ? [tagsOnly] : []),
+    {},
+  ];
+
+  for (const [index, extra] of attempts.entries()) {
+    try {
+      const container = await graphPost(`${instagramUserId}/media`, {
+        ...base,
+        ...extra,
+      });
+      return String(container.id);
+    } catch (err) {
+      if (index === attempts.length - 1) throw err;
+      console.warn(
+        `Container rejected with ${Object.keys(extra).join(", ")}, retrying with less: ${(err as Error).message}`
+      );
+    }
   }
+
+  throw new Error("unreachable");
 };
 
 // Two-step Content Publishing flow: create a media container, wait until
