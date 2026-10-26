@@ -127,26 +127,14 @@ const fetchReelPoster = async (screening: Screening): Promise<Buffer | null> => 
   return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
 };
 
-// Reel posters are decoded at twice the output size (2160x3840) so the
-// slow push-in never upscales.
-export const REEL_POSTER_SIZE = { width: 2160, height: 3840 };
-
-// A screening's reel poster as raw RGB at REEL_POSTER_SIZE, cropped to 9:16
-// around its attention focus; null when the movie has no image at all.
-export const fetchReelPosterRaw = async (
-  screening: Screening
-): Promise<Buffer | null> => {
+// A screening's reel poster cropped to the card (attention-centred) and
+// inlined as a data URL; null when the movie has no image at all.
+export const fetchReelPosterUrl = async (
+  screening: Screening,
+  box: Box
+): Promise<string | null> => {
   const poster = await fetchReelPoster(screening);
-  if (!poster) return null;
-  return sharp(poster)
-    .resize({
-      ...REEL_POSTER_SIZE,
-      fit: "cover",
-      position: sharp.strategy.attention,
-    })
-    .removeAlpha()
-    .raw()
-    .toBuffer();
+  return poster ? cropToBox(poster, box) : null;
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per

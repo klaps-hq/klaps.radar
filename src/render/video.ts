@@ -4,57 +4,43 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { detectBeats, type BeatGrid } from "../audio/beats";
-import { musicFile, pickMood, sfxFile, type Mood } from "../audio/library";
-import { MUSIC_PROMPTS } from "../audio/library";
+import { MUSIC_PROMPTS, musicFile, pickMood, sfxFile, type Mood } from "../audio/library";
 import type { Screening } from "../types/types";
 import {
+  CARD_SIZE,
   cardScene,
   easeInOutSine,
-  easeOutCubic,
   endScene,
   H,
   hookScene,
+  renderBase,
   renderTextLayer,
   textSignature,
   W,
   type Scene,
 } from "./kinetic";
-import { fetchReelPosterRaw, REEL_POSTER_SIZE } from "./render";
+import { fetchReelPosterUrl } from "./render";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const AUDIO_DIR = fileURLToPath(new URL("../../assets/audio/", import.meta.url));
 const FPS = 30;
 const MUSIC_GAIN = 0.9;
-// Scene lengths are whole beats, at least this long so the text can land
-// and be read.
-const MIN_HOOK_S = 1.6;
-const MIN_CARD_S = 1.8;
+// Scene lengths are whole beats, at least this long so the block can be
+// read after its lines have faded up.
+const MIN_HOOK_S = 2.0;
+const MIN_CARD_S = 2.4;
 const MIN_BEATS = 2;
 // The end card holds the music's tail after the final hit, up to this long.
 const MAX_TAIL_S = 2.5;
-const MIN_TAIL_S = 1.2;
-// Background motion: a slow eased push-in across each scene, plus a short
-// settle right after the cut so the cut itself has some energy.
-const PUSH = 0.06;
-const SETTLE = 0.05;
-const SETTLE_S = 0.5;
-const FLASH_S = 0.25;
-const FLASH_ALPHA = 0.85;
-// Constant light dim over posters so white text reads on bright artwork.
-const POSTER_DIM = 0.18;
+const MIN_TAIL_S = 1.5;
+// Each card dissolves into the next, starting on the beat.
+const DISSOLVE_S = 0.4;
 
 const beatsFor = (seconds: number, period: number) =>
   Math.max(MIN_BEATS, Math.ceil(seconds / period));
 
-type Timeline = {
-  scenes: Scene[];
-  musicStart: number; // offset into the track at video time 0
-  total: number;
-  endAt: number; // video time of the end card (= the final hit)
-};
-
 // Beat plan for the content (hook + cards) on a track: whole beats per
-// scene, cut on half beats for slow tracks so it fits before the ending.
+// scene, on half beats for slow tracks so it fits before the ending.
 const planBeats = (count: number, grid: BeatGrid) => {
   let period = grid.period;
   const plan = () => {
@@ -91,14 +77,21 @@ const pickTrack = async (count: number, mood: Mood, preferred: 0 | 1) => {
   return { file: best!.file, grid: best!.grid };
 };
 
+type Timeline = {
+  scenes: Scene[];
+  musicStart: number; // offset into the track at video time 0
+  total: number;
+  endAt: number; // video time of the end card (= the final hit)
+};
+
 // The timeline is anchored on the music's final hit: the end card starts
 // exactly on it, and the hook and cards are laid out backwards from there
-// in whole beats, so every cut sits on the beat and the song ends on the
-// end card instead of being cut off. The music starts mid-track if needed.
+// in whole beats, so every change of card sits on the beat and the song
+// ends on the end card. The music starts mid-track if needed.
 const buildTimeline = (
   lineup: Screening[],
   hookLines: [string, string],
-  posters: (Buffer | null)[],
+  posters: (string | null)[],
   grid: BeatGrid
 ): Timeline => {
   const { period, hookBeats, cardBeats, contentS } = planBeats(lineup.length, grid);
@@ -116,44 +109,28 @@ const buildTimeline = (
     return [start, t] as const;
   };
   const [hookStart, hookEnd] = span(hookBeats);
-  scenes.push(hookScene(hookLines, hookStart, hookEnd, period));
+  scenes.push(hookScene(hookLines, posters[0] ?? null, hookStart, hookEnd));
   lineup.forEach((screening, i) => {
     const [start, end] = span(cardBeats);
-    scenes.push(
-      cardScene(screening, i, lineup.length, posters[i] ? i : null, start, end, period, i === 0)
-    );
+    scenes.push(cardScene(screening, i, lineup.length, posters[i] ?? null, start, end));
   });
-  scenes.push(endScene(endAt, endAt + tail, period));
+  scenes.push(endScene(endAt, endAt + tail));
 
   return { scenes, musicStart, total: endAt + tail, endAt };
 };
 
-// Poster frame at time t: centred crop that pushes in slowly with an
-// ease, plus the post-cut settle, resized to the output frame.
-const backgroundAt = (poster: Buffer | null, scene: Scene, t: number): Promise<Buffer> => {
-  if (!poster) return Promise.resolve(Buffer.alloc(W * H * 3));
-  const p = (t - scene.start) / (scene.end - scene.start);
-  const zoom =
-    1 + PUSH * easeInOutSine(p) + SETTLE * (1 - easeOutCubic((t - scene.start) / SETTLE_S));
-  const { width: pw, height: ph } = REEL_POSTER_SIZE;
-  const width = Math.round(pw / zoom);
-  const height = Math.round(ph / zoom);
-  return sharp(poster, { raw: { width: pw, height: ph, channels: 3 } })
-    .extract({
-      left: Math.round((pw - width) / 2),
-      top: Math.round((ph - height) / 2),
-      width,
-      height,
-    })
-    .resize(W, H, { kernel: "lanczos3" })
-    .raw()
-    .toBuffer();
+// a * (1 - k) + b * k over two raw RGB frames.
+const blend = (a: Buffer, b: Buffer, k: number): Buffer => {
+  const out = Buffer.allocUnsafe(a.length);
+  const ka = 1 - k;
+  for (let i = 0; i < a.length; i += 1) out[i] = a[i]! * ka + b[i]! * k;
+  return out;
 };
 
-// Line-up reel: the screenings in `lineup` as poster scenes with kinetic
-// text, timed to the beats of a music bed matched to `moodSource` (the
-// top-scored screening). Frames are rendered one by one and streamed to
-// ffmpeg, which muxes them with the music.
+// Line-up reel: the screenings in `lineup` as klaps cards (poster held
+// still, one text block), dissolving into each other on the beats of a
+// music bed matched to `moodSource` (the top-scored screening). Frames are
+// rendered one by one and streamed to ffmpeg, which muxes the music.
 export const renderLineupReel = async (
   lineup: Screening[],
   hookLines: [string, string],
@@ -163,23 +140,17 @@ export const renderLineupReel = async (
   const mood = pickMood(genreIds, moodSource.movie.productionYear);
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
 
-  const [posters, { file: music, grid: detected }] = await Promise.all([
-    Promise.all(lineup.map(fetchReelPosterRaw)),
+  const [posters, { file: music, grid }] = await Promise.all([
+    Promise.all(lineup.map((s) => fetchReelPosterUrl(s, CARD_SIZE))),
     pickTrack(lineup.length, mood, variant),
   ]);
-  const { scenes, musicStart, total, endAt } = buildTimeline(
-    lineup,
-    hookLines,
-    posters,
-    detected
-  );
+  const { scenes, musicStart, total, endAt } = buildTimeline(lineup, hookLines, posters, grid);
+  const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
-  const dropAt = scenes.find((s) => s.flash)?.start ?? 0;
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
     const output = join(dir, "reel.mp4");
-    const dropMs = Math.round(dropAt * 1000);
     const endMs = Math.round(endAt * 1000);
     const proc = Bun.spawn(
       [
@@ -187,19 +158,17 @@ export const renderLineupReel = async (
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${W}x${H}`, "-r", String(FPS), "-i", "-",
         "-ss", musicStart.toFixed(3), "-i", music,
         "-i", join(AUDIO_DIR, sfxFile("impact")),
-        "-i", join(AUDIO_DIR, sfxFile("impact")),
         "-filter_complex",
         [
           // The track's own ending carries the end card; only a short fade
           // in case its tail runs past the video.
           `[1:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.25).toFixed(3)}:d=0.25,volume=${MUSIC_GAIN}[m]`,
-          `[2:a]adelay=${dropMs}|${dropMs},volume=0.45[drop]`,
-          // Reinforces the final hit under the end card.
-          `[3:a]adelay=${endMs}|${endMs},volume=0.4[end]`,
-          `[m][drop][end]amix=inputs=3:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`,
+          // A soft hit under the end card, on the music's final hit.
+          `[2:a]adelay=${endMs}|${endMs},volume=0.3[end]`,
+          `[m][end]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`,
         ].join(";"),
         "-map", "0:v", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19",
         "-maxrate", "6M", "-bufsize", "12M", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-ac", "2",
         "-t", total.toFixed(3), "-movflags", "+faststart",
@@ -208,42 +177,36 @@ export const renderLineupReel = async (
       { stdin: "pipe", stderr: "pipe" }
     );
 
-    let cachedSignature = "";
-    let cachedText: Buffer | null = null;
+    let cachedKey = "";
+    let cachedFrame: Buffer | null = null;
+    let sceneIndex = 0;
+    let previousFinal: Buffer | null = null;
     for (let frame = 0; frame < frames; frame += 1) {
       const t = frame / FPS;
-      const scene = scenes.find((s) => t < s.end) ?? scenes.at(-1)!;
+      while (sceneIndex < scenes.length - 1 && t >= scenes[sceneIndex]!.end) {
+        // The last full frame of the outgoing card is what dissolves away.
+        previousFinal = cachedFrame;
+        sceneIndex += 1;
+      }
+      const scene = scenes[sceneIndex]!;
 
-      const signature = `${scenes.indexOf(scene)}#${textSignature(scene, t)}`;
-      if (signature !== cachedSignature) {
-        cachedText = await renderTextLayer(scene, t);
-        cachedSignature = signature;
+      const key = `${sceneIndex}#${textSignature(scene, t)}`;
+      if (key !== cachedKey) {
+        const text = await renderTextLayer(scene, t);
+        cachedFrame = await sharp(bases[sceneIndex]!, { raw: { width: W, height: H, channels: 3 } })
+          .composite([{ input: text, raw: { width: W, height: H, channels: 4 } }])
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+        cachedKey = key;
       }
 
-      const layers: sharp.OverlayOptions[] = [
-        ...(scene.poster === null
-          ? []
-          : [{ input: { create: { width: W, height: H, channels: 4 as const, background: { r: 0, g: 0, b: 0, alpha: POSTER_DIM } } } }]),
-        { input: cachedText!, raw: { width: W, height: H, channels: 4 } },
-      ];
-      if (scene.flash && t - scene.start < FLASH_S) {
-        const alpha = FLASH_ALPHA * (1 - easeOutCubic((t - scene.start) / FLASH_S));
-        layers.push({
-          input: { create: { width: W, height: H, channels: 4, background: { r: 255, g: 255, b: 255, alpha } } },
-        });
-      }
-
-      const background = await backgroundAt(
-        scene.poster === null ? null : posters[scene.poster] ?? null,
-        scene,
-        t
-      );
-      const composed = await sharp(background, { raw: { width: W, height: H, channels: 3 } })
-        .composite(layers)
-        .removeAlpha()
-        .raw()
-        .toBuffer();
-      proc.stdin.write(composed);
+      const sinceCut = t - scene.start;
+      const out =
+        previousFinal && sceneIndex > 0 && sinceCut < DISSOLVE_S
+          ? blend(previousFinal, cachedFrame!, easeInOutSine(sinceCut / DISSOLVE_S))
+          : cachedFrame!;
+      proc.stdin.write(out);
       await proc.stdin.flush();
     }
     await proc.stdin.end();
