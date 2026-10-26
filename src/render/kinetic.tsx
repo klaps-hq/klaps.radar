@@ -8,8 +8,8 @@ import { DISPLAY_LINE_HEIGHT, EYEBROW_GAP } from "./template";
 // Line-up reel frames in klaps' own visual language, the same as the post
 // and story templates: black frame, a rounded card with the poster held
 // still, logo and city in the card header, and one text block (eyebrow,
-// title, rule, date, venue, hairline, footer). Every card puts that block
-// in the same place, inside Instagram's Reels safe zone. Motion is calm:
+// title, rule, date, venue) low on the card, in the same place every time,
+// clear of the reel's caption lines and action rail. Motion is calm:
 // cards dissolve into each other and the block's lines fade up in turn.
 export const W = 1080;
 export const H = 1920;
@@ -17,15 +17,17 @@ export const H = 1920;
 // Card geometry, as the story template (frame margins, radius).
 const CARD = { x: 44, y: 150, width: W - 88, height: H - 150 - 56, radius: 18 };
 const PAD = 56;
-// Safe zone per Meta's Reels guidance: ~270 px top bar, ~670 px caption
-// block, ~230 px action rail on the right over the bottom 40%. The header
-// sits below the top bar and the text block ends above the rail.
+// Reel UI: the top bar (~270 px), the username and a short caption at the
+// bottom, and the action rail on the right of the lower half. As in the
+// post template the text block sits low on the card so the poster stays
+// visible, but it ends ~440 px above the bottom edge (clear of the
+// username/caption lines) and stops short of the action rail on the right.
 const HEADER_TOP = 300;
-const BLOCK_BOTTOM = 1140;
+const BLOCK_BOTTOM = 1480;
+const BLOCK_RIGHT = 250;
 
 const MUTED = "rgba(255,255,255,0.7)";
 const FAINT = "rgba(255,255,255,0.6)";
-const HAIRLINE = "1px solid rgba(255,255,255,0.25)";
 
 export const LINE_FADE_S = 0.5;
 export const LINE_STAGGER_S = 0.07;
@@ -84,7 +86,7 @@ const Big = ({ text }: { text: string }) => (
     style={{
       marginTop: 24,
       fontFamily: "Anton",
-      fontSize: 60,
+      fontSize: 50,
       lineHeight: DISPLAY_LINE_HEIGHT,
       textTransform: "uppercase",
       letterSpacing: "0.02em",
@@ -108,39 +110,23 @@ const Small = ({ text }: { text: string }) => (
   </span>
 );
 
-const Footer = ({ left, right }: { left: string; right?: string }) => (
-  <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-    <div style={{ width: "100%", borderTop: HAIRLINE, marginTop: 28 }} />
-    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22 }}>
-      <span style={{ fontSize: 25, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.18em" }}>
-        {left}
-      </span>
-      {right && (
-        <span style={{ fontSize: 25, textTransform: "uppercase", letterSpacing: "0.18em", color: FAINT }}>
-          {right}
-        </span>
-      )}
-    </div>
-  </div>
-);
-
 // Long titles shrink so they keep to two lines at most (as the templates).
 const titleSize = (title: string): number => {
-  if (title.length > 24) return 84;
-  if (title.length > 16) return 104;
-  if (title.length > 10) return 128;
-  return 156;
+  if (title.length > 24) return 72;
+  if (title.length > 16) return 88;
+  if (title.length > 10) return 104;
+  return 124;
 };
 
 // The card behind the text: poster (or plain black) with the templates'
 // scrim, and the header row. `dim` darkens the poster further (hook).
 const CardBase = ({
   imageUrl,
-  city,
+  meta,
   dim = 0,
 }: {
   imageUrl: string | null;
-  city?: string;
+  meta?: string; // header right: counter and city
   dim?: number;
 }) => (
   <div
@@ -183,10 +169,9 @@ const CardBase = ({
             width: CARD.width,
             height: CARD.height,
             borderRadius: CARD.radius,
-            // The text block sits mid-card (the reel caption covers the
-            // bottom), so the scrim darkens from there rather than at the
-            // bottom as in the post template.
-            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.45 + dim}) 0%, rgba(0,0,0,${0.05 + dim}) 14%, rgba(0,0,0,${0.2 + dim}) 24%, rgba(0,0,0,0.78) 42%, rgba(0,0,0,0.92) 58%, rgba(0,0,0,0.96) 100%)`,
+            // Light at the top for the header, dark only over the lower part
+            // where the text block sits, so most of the poster stays clear.
+            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.45 + dim}) 0%, rgba(0,0,0,${0.05 + dim}) 14%, rgba(0,0,0,${0.05 + dim}) 42%, rgba(0,0,0,${0.55 + dim / 2}) 58%, rgba(0,0,0,0.9) 72%, rgba(0,0,0,0.96) 100%)`,
           }}
         />
       )}
@@ -203,9 +188,9 @@ const CardBase = ({
       }}
     >
       <Logo size={36} />
-      {city && (
+      {meta && (
         <span style={{ fontSize: 22, textTransform: "uppercase", letterSpacing: "0.28em", color: "rgba(255,255,255,0.85)" }}>
-          {city}
+          {meta}
         </span>
       )}
     </div>
@@ -226,13 +211,12 @@ export const hookScene = (
   start,
   end,
   textAt: start + TEXT_DELAY_S,
-  base: <CardBase imageUrl={imageUrl} dim={0.25} />,
+  base: <CardBase imageUrl={imageUrl} dim={0.15} />,
   lines: [
     <Eyebrow key="e" text="Repertuar kin studyjnych" />,
-    <Title key="t" text={lines[0]} size={128} />,
+    <Title key="t" text={lines[0]} size={104} />,
     <Rule key="r" />,
     <Big key="b" text={lines[1]} />,
-    <Footer key="f" left="Przesuń dalej" right="klaps.space" />,
   ],
 });
 
@@ -247,19 +231,17 @@ export const cardScene = (
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
   const eyebrow = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
-  const pad = (n: number) => String(n).padStart(2, "0");
   return {
     start,
     end,
     textAt: start + TEXT_DELAY_S,
-    base: <CardBase imageUrl={imageUrl} city={cinema.city.name} />,
+    base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} />,
     lines: [
       <Eyebrow key="e" text={eyebrow} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
       <Rule key="r" />,
       <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,
       <Small key="s" text={cinema.name} />,
-      <Footer key="f" left={`${pad(index + 1)} / ${pad(total)}`} right="Najbliższe dni" />,
     ],
   };
 };
@@ -271,9 +253,9 @@ export const endScene = (start: number, end: number): Scene => ({
   base: <CardBase imageUrl={null} />,
   lines: [
     <Eyebrow key="e" text="Wszystkie seanse" />,
-    <Title key="t" text="klaps.space" size={128} />,
+    <Title key="t" text="klaps.space" size={104} />,
     <Rule key="r" />,
-    <Small key="s" text="Link w bio · zapisz, żeby nie przegapić" />,
+    <Small key="s" text="Link w bio" />,
   ],
 });
 
@@ -301,7 +283,7 @@ export const renderTextLayer = async (scene: Scene, t: number): Promise<Buffer> 
         style={{
           position: "absolute",
           left: CARD.x + PAD,
-          right: CARD.x + PAD,
+          right: BLOCK_RIGHT,
           bottom: H - BLOCK_BOTTOM,
           display: "flex",
           flexDirection: "column",
