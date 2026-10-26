@@ -1,6 +1,6 @@
 import type { Screening } from "../types/types";
 import { splitScreeningDate } from "../utils/format";
-import { LAYOUTS } from "./template";
+import { DISPLAY_LINE_HEIGHT, EYEBROW_GAP, LAYOUTS } from "./template";
 
 // Weekly carousel bookends. The screening slides in between reuse the post
 // template, so the cover and outro only add the "table of contents" and the
@@ -11,6 +11,10 @@ const CARD = {
   height: layout.height - layout.frame.top - layout.frame.bottom,
 };
 const STRIP_HEIGHT = 138;
+export const STRIP_SIZE = {
+  width: CARD.width - layout.pad * 2,
+  height: STRIP_HEIGHT,
+};
 const STRIP_GAP = 14;
 const HAIRLINE = "1px solid rgba(255,255,255,0.12)";
 
@@ -75,7 +79,7 @@ export const CarouselCover = ({
   dateFrom: string;
   dateTo: string;
 }) => {
-  const stripWidth = CARD.width - layout.pad * 2;
+  const stripWidth = STRIP_SIZE.width;
 
   return (
     <Frame>
@@ -112,10 +116,10 @@ export const CarouselCover = ({
       </span>
       <span
         style={{
-          marginTop: 10,
+          marginTop: EYEBROW_GAP,
           fontFamily: "Anton",
           fontSize: 92,
-          lineHeight: 1.02,
+          lineHeight: DISPLAY_LINE_HEIGHT,
           textTransform: "uppercase",
         }}
       >
@@ -189,7 +193,7 @@ export const CarouselCover = ({
                       fontFamily: "Anton",
                       fontSize: screening.movie.title.length > 26 ? 32 : 40,
                       textTransform: "uppercase",
-                      lineHeight: 1.1,
+                      lineHeight: DISPLAY_LINE_HEIGHT,
                     }}
                   >
                     {screening.movie.title}
@@ -265,10 +269,10 @@ export const CarouselOutro = () => (
     </span>
     <span
       style={{
-        marginTop: 10,
+        marginTop: EYEBROW_GAP,
         fontFamily: "Anton",
         fontSize: 120,
-        lineHeight: 1.0,
+        lineHeight: DISPLAY_LINE_HEIGHT,
         textTransform: "uppercase",
       }}
     >

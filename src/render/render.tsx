@@ -1,8 +1,18 @@
 import satori from "satori";
 import sharp from "sharp";
 import type { Screening } from "../types/types";
-import { CarouselCover, CarouselOutro, type CarouselEntry } from "./carousel";
-import { LAYOUTS, ScreeningImage, type Variant } from "./template";
+import {
+  CarouselCover,
+  CarouselOutro,
+  STRIP_SIZE,
+  type CarouselEntry,
+} from "./carousel";
+import {
+  getCardSize,
+  LAYOUTS,
+  ScreeningImage,
+  type Variant,
+} from "./template";
 
 type SatoriFont = Parameters<typeof satori>[1]["fonts"][number];
 
@@ -34,22 +44,32 @@ const resolveImageUrl = (value: string, size = "original"): string =>
 const getScreeningImagePath = (screening: Screening): string | null =>
   screening.movie.backdropUrl ?? screening.movie.posterUrl;
 
-// Satori does not fetch remote images and sharp will not resolve network
-// hrefs in the SVG, so every image is inlined as a data URL.
-const fetchImageAsDataUrl = async (
-  url: string
-): Promise<string | null> => {
+const fetchImageBuffer = async (url: string): Promise<Buffer | null> => {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(15000),
   }).catch(() => null);
+  return response?.ok ? Buffer.from(await response.arrayBuffer()) : null;
+};
 
-  if (!response?.ok) {
-    return null;
-  }
+type Box = { width: number; height: number };
 
-  const contentType = response.headers.get("content-type") ?? "image/jpeg";
-  const buffer = Buffer.from(await response.arrayBuffer());
-  return `data:${contentType};base64,${buffer.toString("base64")}`;
+// Backdrops are 16:9 and every card is portrait, so most of the frame is
+// cut away. A centred crop often keeps the empty middle of a two-shot (the
+// faces sit at the edges), so the crop follows sharp's attention strategy
+// instead: it favours skin tones, saturation and detail. Satori then gets
+// an image that already has the card's aspect ratio. Satori does not fetch
+// remote images, so the result is inlined as a data URL.
+const cropToBox = async (image: Buffer, box: Box): Promise<string> => {
+  const cropped = await sharp(image)
+    .resize({
+      width: box.width,
+      height: box.height,
+      fit: "cover",
+      position: sharp.strategy.attention,
+    })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${cropped.toString("base64")}`;
 };
 
 const renderElement = async (
@@ -71,17 +91,19 @@ const renderElement = async (
 
 const fetchScreeningImage = async (
   screening: Screening,
+  box: Box,
   size?: string
 ): Promise<string | null> => {
   const path = getScreeningImagePath(screening);
-  return path ? fetchImageAsDataUrl(resolveImageUrl(path, size)) : null;
+  const image = path ? await fetchImageBuffer(resolveImageUrl(path, size)) : null;
+  return image ? cropToBox(image, box) : null;
 };
 
 export const renderScreeningImage = async (
   variant: Variant,
   screening: Screening
 ): Promise<Buffer> => {
-  const imageUrl = await fetchScreeningImage(screening);
+  const imageUrl = await fetchScreeningImage(screening, getCardSize(variant));
 
   return renderElement(
     <ScreeningImage screening={screening} imageUrl={imageUrl} variant={variant} />,
@@ -104,12 +126,31 @@ export const fetchScreeningImageBuffer = async (
   screening: Screening
 ): Promise<Buffer | null> => {
   const path = getScreeningImagePath(screening);
-  if (!path) return null;
+  return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
+};
 
-  const response = await fetch(resolveImageUrl(path), {
-    signal: AbortSignal.timeout(15000),
-  }).catch(() => null);
-  return response?.ok ? Buffer.from(await response.arrayBuffer()) : null;
+// Horizontal focus of an image once scaled to cover `box`, as a share of
+// the overflow (0 = left edge, 1 = right edge), from the same attention
+// strategy as the stills. The reel pans around this point.
+export const findHorizontalFocus = async (
+  image: Buffer,
+  box: Box
+): Promise<number> => {
+  const { info } = await sharp(image)
+    .resize({
+      width: box.width,
+      height: box.height,
+      fit: "cover",
+      position: sharp.strategy.attention,
+    })
+    .toBuffer({ resolveWithObject: true });
+  const meta = await sharp(image).metadata();
+  const scaledWidth = Math.round(
+    ((meta.width ?? box.width) * box.height) / (meta.height ?? box.height)
+  );
+  const overflow = scaledWidth - box.width;
+  if (overflow <= 0) return 0.5;
+  return Math.min(1, Math.max(0, Math.abs(info.cropOffsetLeft ?? 0) / overflow));
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per
@@ -119,8 +160,12 @@ export const renderCarouselImages = async (
   range: { dateFrom: string; dateTo: string }
 ): Promise<Buffer[]> => {
   const [stripImages, slideImages] = await Promise.all([
-    Promise.all(screenings.map((s) => fetchScreeningImage(s, "w780"))),
-    Promise.all(screenings.map((s) => fetchScreeningImage(s))),
+    Promise.all(
+      screenings.map((s) => fetchScreeningImage(s, STRIP_SIZE, "w780"))
+    ),
+    Promise.all(
+      screenings.map((s) => fetchScreeningImage(s, getCardSize("post")))
+    ),
   ]);
   const entries: CarouselEntry[] = screenings.map((screening, i) => ({
     screening,

@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Screening } from "../types/types";
-import { fetchScreeningImageBuffer, renderReelOverlay } from "./render";
+import {
+  fetchScreeningImageBuffer,
+  findHorizontalFocus,
+  renderReelOverlay,
+} from "./render";
 import { LAYOUTS } from "./template";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
@@ -11,9 +15,9 @@ const FPS = 30;
 // The pan is computed at twice the output size and scaled down, so the
 // crop moves in half-pixel steps and the motion stays smooth.
 const SUPERSAMPLE = 2;
-// Share of the image overflow the camera travels across, centred.
-const PAN_FROM = 0.35;
-const PAN_TO = 0.65;
+// Share of the image overflow the camera travels across, centred on the
+// attention focus (faces, colour) rather than the middle of the frame.
+const PAN_SPAN = 0.3;
 const OVERLAY_FADE_START_S = 0.4;
 const OVERLAY_FADE_S = 0.8;
 
@@ -40,7 +44,9 @@ export const renderScreeningReel = async (
     await Bun.write(backdropPath, backdrop);
     await Bun.write(overlayPath, await renderReelOverlay(screening));
 
-    const pan = `(iw-${w})*(${PAN_FROM}+${PAN_TO - PAN_FROM}*t/${DURATION_S})`;
+    const focus = await findHorizontalFocus(backdrop, { width: w, height: h });
+    const panFrom = Math.min(1 - PAN_SPAN, Math.max(0, focus - PAN_SPAN / 2));
+    const pan = `(iw-${w})*(${panFrom.toFixed(3)}+${PAN_SPAN}*t/${DURATION_S})`;
     const filter = [
       `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,` +
         `crop=${w}:${h}:x='${pan}':y='(ih-${h})/2',` +

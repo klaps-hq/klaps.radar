@@ -66,6 +66,14 @@ export const LAYOUTS = {
 
 type Layout = (typeof LAYOUTS)[Variant];
 
+export const getCardSize = (variant: Variant) => {
+  const layout = LAYOUTS[variant];
+  return {
+    width: layout.width - layout.frame.left - layout.frame.right,
+    height: layout.height - layout.frame.top - layout.frame.bottom,
+  };
+};
+
 const getCardRect = (layout: Layout) => ({
   x: layout.frame.left,
   y: layout.frame.top,
@@ -73,6 +81,12 @@ const getCardRect = (layout: Layout) => ({
   height: layout.height - layout.frame.top - layout.frame.bottom,
   radius: layout.radius,
 });
+
+// Anton's Polish capitals (Ś, Ó, Ż, Ź, Ć, Ń) carry accents above the cap
+// height, so display text needs a roomier line box than Latin caps alone
+// and a gap below the eyebrow line, or the accents collide with it.
+export const DISPLAY_LINE_HEIGHT = 1.15;
+export const EYEBROW_GAP = 20;
 
 // Long titles shrink so they keep to one or two lines at most.
 const getTitleSize = (title: string, base: number): number => {
@@ -222,12 +236,12 @@ export const ScreeningImage = ({
 
           <span
             style={{
-              marginTop: 10,
+              marginTop: EYEBROW_GAP,
               fontFamily: "Anton",
               fontSize: getTitleSize(movie.title, layout.titleBase),
               textTransform: "uppercase",
               letterSpacing: "0.01em",
-              lineHeight: 1.05,
+              lineHeight: DISPLAY_LINE_HEIGHT,
             }}
           >
             {movie.title}
