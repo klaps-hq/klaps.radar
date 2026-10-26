@@ -2,93 +2,123 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { detectBeats } from "../audio/beats";
 import { musicFile, pickMood, sfxFile } from "../audio/library";
 import type { Screening } from "../types/types";
-import { renderReelAssets } from "./render";
+import {
+  cardScene,
+  easeInOutSine,
+  easeOutCubic,
+  endScene,
+  H,
+  hookScene,
+  renderTextLayer,
+  textSignature,
+  W,
+  type Scene,
+} from "./kinetic";
+import { fetchReelPosterRaw, REEL_POSTER_SIZE } from "./render";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const AUDIO_DIR = fileURLToPath(new URL("../../assets/audio/", import.meta.url));
 const FPS = 30;
-const W = 1080;
-const H = 1920;
-// Punch-in: each cut opens slightly zoomed and snaps to full frame within
-// a few frames, the standard "impact" cut of short-form edits.
-const PUNCH_FROM = 1.06;
-const PUNCH_FRAMES = 5;
-const SHAKE_PX = 18;
-const SHAKE_S = 0.2;
-const FLASH_S = 0.15;
 const MUSIC_GAIN = 0.9;
-// Each screening card stays up at least this long so title and date can
-// be read; the hook a little longer for its two caption steps.
-const MIN_CARD_S = 1.4;
+// Scene lengths are whole beats, at least this long so the text can land
+// and be read.
 const MIN_HOOK_S = 1.6;
-// Longer than this and the edit drags; slow tracks (often detected at half
+const MIN_CARD_S = 2.0;
+const MIN_END_S = 1.6;
+// Longer than this and the reel drags; slow tracks (often detected at half
 // tempo) are cut on half beats instead.
-const MAX_EDIT_S = 14;
-
-type Segment = {
-  beats: number;
-  shot?: number; // index into the poster shots
-  overlay?: string; // overlay file name
-  punch?: boolean;
-  drop?: boolean; // white flash + shake
-  end?: boolean;
-};
-
-// The edit, in beats: the boxed hook in two steps over the first poster,
-// then one card per screening (the first lands on the drop), then a short
-// end card that loops back to the hook.
-const buildEdit = (count: number, period: number): Segment[] => {
-  const hookBeats = Math.max(2, Math.ceil(MIN_HOOK_S / period));
-  const cardBeats = Math.max(2, Math.ceil(MIN_CARD_S / period));
-  const firstHook = Math.ceil(hookBeats / 2);
-  return [
-    { beats: firstHook, shot: 0, overlay: "hook-first.png", punch: true },
-    { beats: hookBeats - firstHook, shot: 0, overlay: "hook-full.png" },
-    ...Array.from({ length: count }, (_, i): Segment => ({
-      beats: cardBeats,
-      shot: i,
-      overlay: `item-${i}.png`,
-      punch: true,
-      drop: i === 0,
-    })),
-    { beats: 2, end: true },
-  ];
-};
-
-const run = async (args: string[]): Promise<void> => {
-  const proc = Bun.spawn([FFMPEG, "-y", "-loglevel", "error", ...args], {
-    stderr: "pipe",
-  });
-  if ((await proc.exited) !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`ffmpeg failed: ${stderr.trim().slice(0, 800)}`);
-  }
-};
+const MAX_REEL_S = 14;
+// Background motion: a slow eased push-in across each scene, plus a short
+// settle right after the cut so the cut itself has some energy.
+const PUSH = 0.06;
+const SETTLE = 0.05;
+const SETTLE_S = 0.5;
+const FLASH_S = 0.25;
+const FLASH_ALPHA = 0.85;
+// Constant light dim over posters so white text reads on bright artwork.
+const POSTER_DIM = 0.18;
 
 // Beat times relative to the first beat, halved for slow tracks and
 // extended with the period past the end of the detected grid.
-const beatGrid = (beats: number[], period: number) => {
-  let times = beats.map((b) => b - (beats[0] ?? 0));
+const beatClock = (detected: { beats: number[]; period: number }) => {
+  let times = detected.beats.map((b) => b - (detected.beats[0] ?? 0));
+  let period = detected.period;
   return {
-    times,
-    period,
+    get period() {
+      return period;
+    },
     halve() {
       times = times.flatMap((t) => [t, t + period / 2]);
       period /= 2;
-      this.times = times;
-      this.period = period;
     },
     at(index: number): number {
-      return times[index] ?? (times.at(-1) ?? 0) + (index - times.length + 1) * period;
+      const last = times.length - 1;
+      return index <= last ? times[index]! : (times[last] ?? 0) + (index - last) * period;
     },
   };
 };
 
-// Line-up reel: the screenings in `lineup` as poster cards cut on the beat
-// of a music bed matched to `moodSource` (the top-scored screening).
+const beatsFor = (seconds: number, period: number) =>
+  Math.max(2, Math.ceil(seconds / period));
+
+const buildScenes = (
+  lineup: Screening[],
+  hookLines: [string, string],
+  posters: (Buffer | null)[],
+  clock: ReturnType<typeof beatClock>
+): Scene[] => {
+  const period = clock.period;
+  const scenes: Scene[] = [];
+  let beat = 0;
+  const span = (beats: number) => {
+    const start = clock.at(beat);
+    beat += beats;
+    return [start, clock.at(beat)] as const;
+  };
+
+  const [hookStart, hookEnd] = span(beatsFor(MIN_HOOK_S, period));
+  scenes.push(hookScene(hookLines, hookStart, hookEnd, period));
+  lineup.forEach((screening, i) => {
+    const [start, end] = span(beatsFor(MIN_CARD_S, period));
+    scenes.push(
+      cardScene(screening, i, lineup.length, posters[i] ? i : null, start, end, period, i === 0)
+    );
+  });
+  const [endStart, endEnd] = span(beatsFor(MIN_END_S, period));
+  scenes.push(endScene(endStart, endEnd, period));
+  return scenes;
+};
+
+// Poster frame at time t: centred crop that pushes in slowly with an
+// ease, plus the post-cut settle, resized to the output frame.
+const backgroundAt = (poster: Buffer | null, scene: Scene, t: number): Promise<Buffer> => {
+  if (!poster) return Promise.resolve(Buffer.alloc(W * H * 3));
+  const p = (t - scene.start) / (scene.end - scene.start);
+  const zoom =
+    1 + PUSH * easeInOutSine(p) + SETTLE * (1 - easeOutCubic((t - scene.start) / SETTLE_S));
+  const { width: pw, height: ph } = REEL_POSTER_SIZE;
+  const width = Math.round(pw / zoom);
+  const height = Math.round(ph / zoom);
+  return sharp(poster, { raw: { width: pw, height: ph, channels: 3 } })
+    .extract({
+      left: Math.round((pw - width) / 2),
+      top: Math.round((ph - height) / 2),
+      width,
+      height,
+    })
+    .resize(W, H, { kernel: "lanczos3" })
+    .raw()
+    .toBuffer();
+};
+
+// Line-up reel: the screenings in `lineup` as poster scenes with kinetic
+// text, timed to the beats of a music bed matched to `moodSource` (the
+// top-scored screening). Frames are rendered one by one and streamed to
+// ffmpeg, which muxes them with the music.
 export const renderLineupReel = async (
   lineup: Screening[],
   hookLines: [string, string],
@@ -99,106 +129,90 @@ export const renderLineupReel = async (
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
   const music = join(AUDIO_DIR, musicFile(mood, variant));
 
-  const [assets, detected] = await Promise.all([
-    renderReelAssets(lineup, hookLines),
+  const [posters, detected] = await Promise.all([
+    Promise.all(lineup.map(fetchReelPosterRaw)),
     detectBeats(music),
   ]);
-  const grid = beatGrid(detected.beats, detected.period);
-  let edit = buildEdit(lineup.length, grid.period);
-  const beatsOf = (e: Segment[]) => e.reduce((sum, s) => sum + s.beats, 0);
-  while (grid.at(beatsOf(edit)) > MAX_EDIT_S && grid.period > 0.25) {
-    grid.halve();
-    edit = buildEdit(lineup.length, grid.period);
+  const clock = beatClock(detected);
+  let scenes = buildScenes(lineup, hookLines, posters, clock);
+  while (scenes.at(-1)!.end > MAX_REEL_S && clock.period > 0.25) {
+    clock.halve();
+    scenes = buildScenes(lineup, hookLines, posters, clock);
   }
-  const musicStart = detected.beats[0] ?? 0;
+  const total = scenes.at(-1)!.end;
+  const frames = Math.round(total * FPS);
+  const dropAt = scenes.find((s) => s.flash)?.start ?? 0;
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
-    const files = new Map<string, string>();
-    const write = async (name: string, data: Buffer) => {
-      const file = join(dir, name);
-      await Bun.write(file, data);
-      files.set(name, file);
-    };
-    await Promise.all([
-      ...assets.shots.map((b, i) => write(`shot-${i}.jpg`, b)),
-      ...assets.items.map((b, i) => write(`item-${i}.png`, b)),
-      write("hook-first.png", assets.hookFirst),
-      write("hook-full.png", assets.hookFull),
-      write("end.jpg", assets.end),
-    ]);
-
-    const inputs: string[] = [];
-    let inputCount = 0;
-    const addInput = (file: string, seconds: number): number => {
-      inputs.push("-loop", "1", "-framerate", String(FPS), "-t", seconds.toFixed(3), "-i", file);
-      return inputCount++;
-    };
-
-    const filters: string[] = [];
-    let beat = 0;
-    let dropAt = 0;
-    edit.forEach((segment, i) => {
-      const startFrame = Math.round(grid.at(beat) * FPS);
-      beat += segment.beats;
-      const frames = Math.round(grid.at(beat) * FPS) - startFrame;
-      const seconds = frames / FPS + 0.1;
-      const exact = `trim=end_frame=${frames},setpts=PTS-STARTPTS`;
-
-      if (segment.end) {
-        const input = addInput(files.get("end.jpg")!, seconds);
-        filters.push(`[${input}:v]scale=${W}:${H},setsar=1,fps=${FPS},${exact}[v${i}]`);
-        return;
-      }
-
-      const input = addInput(files.get(`shot-${segment.shot}.jpg`)!, seconds);
-      const zoom = segment.punch
-        ? `if(lt(on,${PUNCH_FRAMES}),${PUNCH_FROM}-${((PUNCH_FROM - 1) / PUNCH_FRAMES).toFixed(4)}*on,1)`
-        : "1";
-      let chain =
-        `[${input}:v]zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},setsar=1`;
-      if (segment.drop) {
-        dropAt = startFrame / FPS;
-        const jitter = `if(lt(t,${SHAKE_S}),${SHAKE_PX}*sin(t*160)*(1-t/${SHAKE_S}),0)`;
-        chain +=
-          `,fade=t=in:st=0:d=${FLASH_S}:color=white` +
-          `,pad=${W + SHAKE_PX * 2}:${H + SHAKE_PX * 2}:${SHAKE_PX}:${SHAKE_PX}:black` +
-          `,crop=${W}:${H}:x='${SHAKE_PX}+${jitter}':y='${SHAKE_PX}-${jitter}'`;
-      }
-      const overlay = addInput(files.get(segment.overlay!)!, seconds);
-      filters.push(`${chain}[b${i}]`);
-      filters.push(`[b${i}][${overlay}:v]overlay=0:0,${exact}[v${i}]`);
-    });
-    filters.push(
-      `${edit.map((_, i) => `[v${i}]`).join("")}concat=n=${edit.length}:v=1:a=0,format=yuv420p[v]`
-    );
-
-    const total = Math.round(grid.at(beat) * FPS) / FPS;
-    const musicInput = inputCount++;
-    const impactInput = inputCount++;
-    inputs.push("-ss", musicStart.toFixed(3), "-i", music);
-    inputs.push("-i", join(AUDIO_DIR, sfxFile("impact")));
-    const dropMs = Math.round(dropAt * 1000);
-    filters.push(
-      `[${musicInput}:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.35).toFixed(3)}:d=0.35,volume=${MUSIC_GAIN}[m]`,
-      `[${impactInput}:a]adelay=${dropMs}|${dropMs},volume=0.55[hit]`,
-      `[m][hit]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`
-    );
-
     const output = join(dir, "reel.mp4");
-    await run([
-      ...inputs,
-      "-filter_complex", filters.join(";"),
-      "-map", "[v]", "-map", "[a]",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-      "-maxrate", "6M", "-bufsize", "12M",
-      "-r", String(FPS), "-pix_fmt", "yuv420p",
-      "-c:a", "aac", "-b:a", "192k", "-ac", "2",
-      "-t", total.toFixed(3),
-      "-movflags", "+faststart",
-      output,
-    ]);
+    const dropMs = Math.round(dropAt * 1000);
+    const proc = Bun.spawn(
+      [
+        FFMPEG, "-y", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${W}x${H}`, "-r", String(FPS), "-i", "-",
+        "-ss", (detected.beats[0] ?? 0).toFixed(3), "-i", music,
+        "-i", join(AUDIO_DIR, sfxFile("impact")),
+        "-filter_complex",
+        [
+          `[1:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.4).toFixed(3)}:d=0.4,volume=${MUSIC_GAIN}[m]`,
+          `[2:a]adelay=${dropMs}|${dropMs},volume=0.5[hit]`,
+          `[m][hit]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`,
+        ].join(";"),
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-maxrate", "6M", "-bufsize", "12M", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-ac", "2",
+        "-t", total.toFixed(3), "-movflags", "+faststart",
+        output,
+      ],
+      { stdin: "pipe", stderr: "pipe" }
+    );
 
+    let cachedSignature = "";
+    let cachedText: Buffer | null = null;
+    for (let frame = 0; frame < frames; frame += 1) {
+      const t = frame / FPS;
+      const scene = scenes.find((s) => t < s.end) ?? scenes.at(-1)!;
+
+      const signature = `${scenes.indexOf(scene)}#${textSignature(scene, t)}`;
+      if (signature !== cachedSignature) {
+        cachedText = await renderTextLayer(scene, t);
+        cachedSignature = signature;
+      }
+
+      const layers: sharp.OverlayOptions[] = [
+        ...(scene.poster === null
+          ? []
+          : [{ input: { create: { width: W, height: H, channels: 4 as const, background: { r: 0, g: 0, b: 0, alpha: POSTER_DIM } } } }]),
+        { input: cachedText!, raw: { width: W, height: H, channels: 4 } },
+      ];
+      if (scene.flash && t - scene.start < FLASH_S) {
+        const alpha = FLASH_ALPHA * (1 - easeOutCubic((t - scene.start) / FLASH_S));
+        layers.push({
+          input: { create: { width: W, height: H, channels: 4, background: { r: 255, g: 255, b: 255, alpha } } },
+        });
+      }
+
+      const background = await backgroundAt(
+        scene.poster === null ? null : posters[scene.poster] ?? null,
+        scene,
+        t
+      );
+      const composed = await sharp(background, { raw: { width: W, height: H, channels: 3 } })
+        .composite(layers)
+        .removeAlpha()
+        .raw()
+        .toBuffer();
+      proc.stdin.write(composed);
+      await proc.stdin.flush();
+    }
+    await proc.stdin.end();
+
+    if ((await proc.exited) !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`ffmpeg failed: ${stderr.trim().slice(0, 800)}`);
+    }
     return Buffer.from(await Bun.file(output).arrayBuffer());
   } finally {
     await rm(dir, { recursive: true, force: true });

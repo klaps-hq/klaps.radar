@@ -8,7 +8,6 @@ import {
   STRIP_SIZE,
   type CarouselEntry,
 } from "./carousel";
-import { ReelCaption, ReelEnd, ReelLineupItem, REEL_SIZE } from "./reel";
 import {
   getCardSize,
   LAYOUTS,
@@ -23,7 +22,7 @@ let fontsPromise: Promise<SatoriFont[]> | undefined;
 const loadFont = (file: string): Promise<ArrayBuffer> =>
   Bun.file(new URL(`../../assets/fonts/${file}`, import.meta.url)).arrayBuffer();
 
-const loadFonts = (): Promise<SatoriFont[]> => {
+export const loadFonts = (): Promise<SatoriFont[]> => {
   fontsPromise ??= Promise.all([
     loadFont("Inter-Regular.ttf"),
     loadFont("Inter-Bold.ttf"),
@@ -128,59 +127,26 @@ const fetchReelPoster = async (screening: Screening): Promise<Buffer | null> => 
   return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
 };
 
-// Shots are rendered at twice the output size so the punch-in zoom stays
-// sharp.
-const SHOT_SCALE = 2;
-export const REEL_SHOT_SCALE = SHOT_SCALE;
+// Reel posters are decoded at twice the output size (2160x3840) so the
+// slow push-in never upscales.
+export const REEL_POSTER_SIZE = { width: 2160, height: 3840 };
 
-const toShot = (image: Buffer): Promise<Buffer> =>
-  sharp(image)
+// A screening's reel poster as raw RGB at REEL_POSTER_SIZE, cropped to 9:16
+// around its attention focus; null when the movie has no image at all.
+export const fetchReelPosterRaw = async (
+  screening: Screening
+): Promise<Buffer | null> => {
+  const poster = await fetchReelPoster(screening);
+  if (!poster) return null;
+  return sharp(poster)
     .resize({
-      width: REEL_SIZE.width * SHOT_SCALE,
-      height: REEL_SIZE.height * SHOT_SCALE,
+      ...REEL_POSTER_SIZE,
       fit: "cover",
       position: sharp.strategy.attention,
     })
-    .jpeg({ quality: 90 })
+    .removeAlpha()
+    .raw()
     .toBuffer();
-
-const BLACK_SHOT = () =>
-  sharp({
-    create: {
-      width: REEL_SIZE.width * SHOT_SCALE,
-      height: REEL_SIZE.height * SHOT_SCALE,
-      channels: 3,
-      background: "#000000",
-    },
-  })
-    .jpeg()
-    .toBuffer();
-
-// Everything the line-up reel needs: a poster shot and a card per
-// screening, the hook captions and the end card.
-export const renderReelAssets = async (
-  lineup: Screening[],
-  hookLines: [string, string]
-) => {
-  const posters = await Promise.all(lineup.map(fetchReelPoster));
-  const shots = await Promise.all(
-    posters.map((poster) => (poster ? toShot(poster) : BLACK_SHOT()))
-  );
-
-  const png = (element: Parameters<typeof satori>[0]) =>
-    renderElement(element, REEL_SIZE, "png");
-  const [hookFirst, hookFull, end, ...items] = await Promise.all([
-    png(<ReelCaption lines={hookLines.slice(0, 1)} />),
-    png(<ReelCaption lines={hookLines} />),
-    renderElement(<ReelEnd />, REEL_SIZE),
-    ...lineup.map((screening, index) =>
-      png(
-        <ReelLineupItem screening={screening} index={index} total={lineup.length} />
-      )
-    ),
-  ]);
-
-  return { shots, hookFirst: hookFirst!, hookFull: hookFull!, items, end: end! };
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per
