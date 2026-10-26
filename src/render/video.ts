@@ -14,7 +14,7 @@ const W = 1080;
 const H = 1920;
 // Punch-in: each cut opens slightly zoomed and snaps to full frame within
 // a few frames, the standard "impact" cut of short-form edits.
-const PUNCH_FROM = 1.12;
+const PUNCH_FROM = 1.06;
 const PUNCH_FRAMES = 5;
 const SHAKE_PX = 18;
 const SHAKE_S = 0.2;
@@ -24,7 +24,7 @@ const MUSIC_GAIN = 0.9;
 type Overlay = "hookFirst" | "hookFull" | "title" | "when" | "where";
 type Segment = {
   beats: number; // length in beats
-  shot?: { kind: "wide" | "tight"; still: number };
+  shot?: number; // index of the still
   overlay?: Overlay;
   punch?: boolean;
   drop?: boolean; // white flash + shake
@@ -33,22 +33,22 @@ type Segment = {
 };
 
 // The edit, in beats (16 in total, 7-10 s depending on tempo): a boxed
-// hook on the first frame, the drop, eight fast cuts alternating wide and
-// tight framings with the title landing mid-run, date and venue over
-// dimmed stills, and a short end card that loops back to the hook.
+// hook on the key art, the drop, a different still on every fast cut with
+// the title landing mid-run, date and venue over dimmed stills, and a
+// short end card that loops back to the hook.
 const EDIT: Segment[] = [
-  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "hookFirst", punch: true },
-  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "hookFull" },
-  { beats: 1, shot: { kind: "tight", still: 0 }, punch: true, drop: true },
-  { beats: 1, shot: { kind: "wide", still: 1 }, punch: true },
-  { beats: 1, shot: { kind: "tight", still: 1 }, punch: true },
-  { beats: 1, shot: { kind: "wide", still: 2 }, punch: true },
-  { beats: 1, shot: { kind: "tight", still: 2 }, overlay: "title", punch: true },
-  { beats: 1, shot: { kind: "wide", still: 3 }, overlay: "title", punch: true },
-  { beats: 1, shot: { kind: "tight", still: 3 }, overlay: "title", punch: true },
-  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "title", punch: true },
-  { beats: 2, shot: { kind: "wide", still: 1 }, overlay: "when", punch: true, dim: true },
-  { beats: 2, shot: { kind: "tight", still: 2 }, overlay: "where", punch: true, dim: true },
+  { beats: 1, shot: 0, overlay: "hookFirst", punch: true },
+  { beats: 1, shot: 0, overlay: "hookFull" },
+  { beats: 1, shot: 1, punch: true, drop: true },
+  { beats: 1, shot: 2, punch: true },
+  { beats: 1, shot: 3, punch: true },
+  { beats: 1, shot: 4, punch: true },
+  { beats: 1, shot: 5, overlay: "title", punch: true },
+  { beats: 1, shot: 6, overlay: "title", punch: true },
+  { beats: 1, shot: 7, overlay: "title", punch: true },
+  { beats: 1, shot: 1, overlay: "title", punch: true },
+  { beats: 2, shot: 2, overlay: "when", punch: true, dim: true },
+  { beats: 2, shot: 3, overlay: "where", punch: true, dim: true },
   { beats: 2, end: true },
 ];
 const TOTAL_BEATS = EDIT.reduce((sum, s) => sum + s.beats, 0);
@@ -104,12 +104,11 @@ export const renderScreeningReel = async (
       files.set(name, file);
     };
     await Promise.all([
-      ...assets.wide.map((b, i) => write(`wide-${i}.jpg`, b)),
-      ...assets.tight.map((b, i) => write(`tight-${i}.jpg`, b)),
+      ...assets.shots.map((b, i) => write(`shot-${i}.jpg`, b)),
       ...Object.entries(assets.overlays).map(([name, b]) => write(`${name}.png`, b)),
       write("end.jpg", assets.end),
     ]);
-    const stills = assets.wide.length;
+    const stills = assets.shots.length;
 
     const inputs: string[] = [];
     let inputCount = 0;
@@ -121,6 +120,7 @@ export const renderScreeningReel = async (
     const filters: string[] = [];
     let beat = 0;
     let dropAt = 0;
+    let previousStill = -1;
     EDIT.forEach((segment, i) => {
       const startFrame = Math.round(times[beat]! * FPS);
       beat += segment.beats;
@@ -134,8 +134,15 @@ export const renderScreeningReel = async (
         return;
       }
 
-      const { kind, still } = segment.shot!;
-      const input = addInput(files.get(`${kind}-${still % stills}.jpg`)!, seconds);
+      // With fewer stills than cuts, the shot index wraps; skip ahead when
+      // that would repeat the previous cut's still (the hook's two beats
+      // are one shot on purpose).
+      let still = segment.shot! % stills;
+      if (still === previousStill && segment.shot !== EDIT[i - 1]?.shot && stills > 1) {
+        still = (still + 1) % stills;
+      }
+      previousStill = still;
+      const input = addInput(files.get(`shot-${still}.jpg`)!, seconds);
       const zoom = segment.punch
         ? `if(lt(on,${PUNCH_FRAMES}),${PUNCH_FROM}-${((PUNCH_FROM - 1) / PUNCH_FRAMES).toFixed(4)}*on,1)`
         : "1";

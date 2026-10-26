@@ -147,36 +147,47 @@ const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
 // Shots are rendered at twice the output size so the punch-in zoom stays
 // sharp.
 const SHOT_SCALE = 2;
-// A "tight" shot is a closer framing of the same still, so four stills
-// give eight different-looking cuts, like coverage from a real edit.
-const TIGHT_ZOOM = 1.7;
+// Landscape stills sit a little above centre, clear of the caption block.
+const LANDSCAPE_CENTER = 0.44;
 
-const toShot = async (image: Buffer, zoom: number): Promise<Buffer> => {
+// A reel shot never crops into a still. Portrait images (key art) fill the
+// frame; landscape stills are shown whole across the width over a blurred,
+// darkened copy of themselves, the usual way 16:9 footage sits in a reel.
+const toShot = async (image: Buffer): Promise<Buffer> => {
   const width = REEL_SIZE.width * SHOT_SCALE;
   const height = REEL_SIZE.height * SHOT_SCALE;
-  const wide = await sharp(image)
-    .resize({ width, height, fit: "cover", position: sharp.strategy.attention })
-    .toBuffer();
-  if (zoom === 1) return sharp(wide).jpeg({ quality: 90 }).toBuffer();
+  const meta = await sharp(image).metadata();
+  const portrait = (meta.height ?? 0) > (meta.width ?? 0);
 
-  // The wide crop only chose a horizontal offset. A square attention crop
-  // of it picks the most interesting height too; the tight shot is then
-  // cut around the centre of that square.
-  const { info } = await sharp(wide)
-    .resize({ width, height: width, fit: "cover", position: sharp.strategy.attention })
-    .toBuffer({ resolveWithObject: true });
-  const focusY = Math.abs(info.cropOffsetTop ?? 0) + width / 2;
-  const tightW = Math.round(width / zoom);
-  const tightH = Math.round(height / zoom);
-  const top = Math.min(height - tightH, Math.max(0, Math.round(focusY - tightH / 2)));
-  return sharp(wide)
-    .extract({ left: Math.round((width - tightW) / 2), top, width: tightW, height: tightH })
+  if (portrait) {
+    return sharp(image)
+      .resize({ width, height, fit: "cover", position: sharp.strategy.attention })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+  }
+
+  const background = await sharp(image)
+    .resize({ width: width / 4, height: height / 4, fit: "cover" })
+    .blur(18)
+    .modulate({ brightness: 0.45, saturation: 0.9 })
     .resize({ width, height })
+    .toBuffer();
+  const foreground = await sharp(image).resize({ width }).toBuffer();
+  const fgHeight = (await sharp(foreground).metadata()).height ?? 0;
+  return sharp(background)
+    .composite([
+      {
+        input: foreground,
+        left: 0,
+        top: Math.max(0, Math.round(height * LANDSCAPE_CENTER - fgHeight / 2)),
+      },
+    ])
     .jpeg({ quality: 90 })
     .toBuffer();
 };
 
 export const REEL_SHOT_SCALE = SHOT_SCALE;
+export const REEL_MAX_STILLS = 8;
 
 // Everything the reel edit needs: wide and tight shots per still, the
 // overlays (transparent PNG) and the end card.
@@ -185,11 +196,9 @@ export const renderReelAssets = async (screening: Screening) => {
   if (stills.length === 0) {
     throw new Error("Reel needs at least one backdrop or poster image");
   }
-  const picked = stills.slice(0, 4);
-  const [wide, tight] = await Promise.all([
-    Promise.all(picked.map((s) => toShot(s, 1))),
-    Promise.all(picked.map((s) => toShot(s, TIGHT_ZOOM))),
-  ]);
+  const shots = await Promise.all(
+    stills.slice(0, REEL_MAX_STILLS).map((still) => toShot(still))
+  );
 
   const today = todayInPoland();
   const { date } = splitScreeningDate(screening.date);
@@ -229,8 +238,7 @@ export const renderReelAssets = async (screening: Screening) => {
   ]);
 
   return {
-    wide,
-    tight,
+    shots,
     overlays: { hookFirst, hookFull, title, when, where },
     end,
   };

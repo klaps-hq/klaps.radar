@@ -9,7 +9,8 @@ import type { Screening } from "../types/types";
 const TMDB_API = "https://api.themoviedb.org/3";
 // Smaller stills are usually frame grabs too soft for a 1080 px card.
 const MIN_WIDTH = 1280;
-const MAX_BACKDROPS = 4;
+// Enough distinct stills for one per cut in the reel montage.
+const MAX_BACKDROPS = 8;
 
 export type MovieArt = {
   // TMDB paths ("/abc.jpg"), like the DB fields.
