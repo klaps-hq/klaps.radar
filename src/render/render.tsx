@@ -126,15 +126,11 @@ export const renderScreeningImage = async (
   );
 };
 
-// Reel stills. The first one carries the hook, so it is the textless key
-// art when TMDB has it (composed for portrait, strongest single image),
-// then the backdrops. Raw bytes.
+// Reel stills: textless posters first (the first carries the hook), then
+// backdrops. Raw bytes.
 const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
   const art = await getMovieArt(screening.movie);
-  const paths = [
-    ...(art.textlessPoster ? [art.textlessPoster] : []),
-    ...art.backdrops,
-  ];
+  const paths = [...art.textlessPosters, ...art.backdrops];
   if (paths.length === 0 && screening.movie.posterUrl) {
     paths.push(screening.movie.posterUrl);
   }
@@ -147,23 +143,32 @@ const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
 // Shots are rendered at twice the output size so the punch-in zoom stays
 // sharp.
 const SHOT_SCALE = 2;
-// Landscape stills sit a little above centre, clear of the caption block.
+// Landscape stills at least this wide fill the frame: a 1920 px TMDB still
+// keeps ~600 px after a 9:16 crop, which holds up at phone size with a
+// light sharpen. Narrower ones would turn to mush and get the boxed layout.
+const FULL_BLEED_MIN_WIDTH = 1600;
+// Fallback layout: landscape stills sit a little above centre.
 const LANDSCAPE_CENTER = 0.44;
 
-// A reel shot never crops into a still. Portrait images (key art) fill the
-// frame; landscape stills are shown whole across the width over a blurred,
-// darkened copy of themselves, the usual way 16:9 footage sits in a reel.
-const toShot = async (image: Buffer): Promise<Buffer> => {
+type Shot = { image: Buffer; fullBleed: boolean };
+
+// Every shot fills the vertical frame: portrait art and high-resolution
+// landscape stills are cropped around their attention focus. Only a
+// low-resolution landscape still, which would turn soft if cropped, is
+// shown whole over a blurred copy of itself, and those shots go last.
+const toShot = async (image: Buffer): Promise<Shot> => {
   const width = REEL_SIZE.width * SHOT_SCALE;
   const height = REEL_SIZE.height * SHOT_SCALE;
   const meta = await sharp(image).metadata();
   const portrait = (meta.height ?? 0) > (meta.width ?? 0);
 
-  if (portrait) {
-    return sharp(image)
+  if (portrait || (meta.width ?? 0) >= FULL_BLEED_MIN_WIDTH) {
+    const cropped = await sharp(image)
       .resize({ width, height, fit: "cover", position: sharp.strategy.attention })
+      .sharpen({ sigma: 0.8 })
       .jpeg({ quality: 90 })
       .toBuffer();
+    return { image: cropped, fullBleed: true };
   }
 
   const background = await sharp(image)
@@ -174,7 +179,7 @@ const toShot = async (image: Buffer): Promise<Buffer> => {
     .toBuffer();
   const foreground = await sharp(image).resize({ width }).toBuffer();
   const fgHeight = (await sharp(foreground).metadata()).height ?? 0;
-  return sharp(background)
+  const boxed = await sharp(background)
     .composite([
       {
         input: foreground,
@@ -184,6 +189,7 @@ const toShot = async (image: Buffer): Promise<Buffer> => {
     ])
     .jpeg({ quality: 90 })
     .toBuffer();
+  return { image: boxed, fullBleed: false };
 };
 
 export const REEL_SHOT_SCALE = SHOT_SCALE;
@@ -196,9 +202,18 @@ export const renderReelAssets = async (screening: Screening) => {
   if (stills.length === 0) {
     throw new Error("Reel needs at least one backdrop or poster image");
   }
-  const shots = await Promise.all(
-    stills.slice(0, REEL_MAX_STILLS).map((still) => toShot(still))
-  );
+  const rendered = await Promise.all(stills.map((still) => toShot(still)));
+  // The hook takes the first full-frame shot (key art when there is one),
+  // then full-frame shots come before boxed ones.
+  const hook = rendered.find((s) => s.fullBleed) ?? rendered[0]!;
+  const rest = rendered.filter((s) => s !== hook);
+  const shots = [
+    hook,
+    ...rest.filter((s) => s.fullBleed),
+    ...rest.filter((s) => !s.fullBleed),
+  ]
+    .slice(0, REEL_MAX_STILLS)
+    .map((s) => s.image);
 
   const today = todayInPoland();
   const { date } = splitScreeningDate(screening.date);

@@ -15,8 +15,13 @@ const MAX_BACKDROPS = 8;
 export type MovieArt = {
   // TMDB paths ("/abc.jpg"), like the DB fields.
   textlessPoster: string | null;
+  // All textless posters, best first (alternate and character posters):
+  // portrait shots for the reel.
+  textlessPosters: string[];
   backdrops: string[];
 };
+
+const MAX_POSTERS = 3;
 
 type TmdbImage = {
   file_path: string;
@@ -91,6 +96,7 @@ export const getMovieArt = (movie: Screening["movie"]): Promise<MovieArt> => {
 const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
   const fallback: MovieArt = {
     textlessPoster: null,
+    textlessPosters: [],
     backdrops: movie.backdropUrl ? [movie.backdropUrl] : [],
   };
 
@@ -105,9 +111,12 @@ const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
     );
     if (!images) return fallback;
 
-    const textlessPoster =
-      best(images.posters.filter((p) => p.iso_639_1 === null))[0]?.file_path ??
-      null;
+    const textlessPosters = best(
+      images.posters.filter((p) => p.iso_639_1 === null)
+    )
+      .slice(0, MAX_POSTERS)
+      .map((p) => p.file_path);
+    const textlessPoster = textlessPosters[0] ?? null;
     // Textless stills first; the DB backdrop always stays in the set.
     const stills = best(images.backdrops)
       .sort((a, b) => Number(a.iso_639_1 !== null) - Number(b.iso_639_1 !== null))
@@ -116,7 +125,11 @@ const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
       ...new Set([...(movie.backdropUrl ? [movie.backdropUrl] : []), ...stills]),
     ].slice(0, MAX_BACKDROPS);
 
-    return { textlessPoster, backdrops: backdrops.length ? backdrops : fallback.backdrops };
+    return {
+      textlessPoster,
+      textlessPosters,
+      backdrops: backdrops.length ? backdrops : fallback.backdrops,
+    };
   } catch {
     return fallback;
   }
