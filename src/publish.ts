@@ -8,6 +8,7 @@ import type {
   Platform,
   Screening,
 } from "./types/types";
+import { buildHashtags, buildHook } from "./utils/caption";
 import {
   fetchCandidate,
   markCandidateAsPublished,
@@ -59,6 +60,8 @@ const buildCaption = (
   const { date, time } = splitScreeningDate(screening.date);
 
   return [
+    buildHook(screening),
+    "",
     `${movie.title} (${movie.productionYear})`,
     `${formatPolishDate(date)}${time ? `, godz. ${time}` : ""}`,
     `${cinema.name}, ${cinema.street}, ${cinema.city.name}`,
@@ -66,10 +69,9 @@ const buildCaption = (
       ? ["", truncateText(movie.description, 350)]
       : []),
     "",
+    "Oznacz osobę, z którą chcesz iść na ten seans.",
     "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
-    ...(options?.hashtags === false
-      ? []
-      : ["", "#klaps #kino #kinostudyjne #seans #film #klasykakina"]),
+    ...(options?.hashtags === false ? [] : ["", buildHashtags(screening)]),
   ].join("\n");
 };
 
