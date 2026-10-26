@@ -8,16 +8,7 @@ import {
   STRIP_SIZE,
   type CarouselEntry,
 } from "./carousel";
-import {
-  describeWhen as describeScreeningDay,
-  ReelCaption,
-  ReelEnd,
-  ReelInfo,
-  ReelTitle,
-  REEL_SIZE,
-} from "./reel";
-import { describeWhen } from "../utils/caption";
-import { splitScreeningDate, todayInPoland } from "../utils/format";
+import { ReelCaption, ReelEnd, ReelLineupItem, REEL_SIZE } from "./reel";
 import {
   getCardSize,
   LAYOUTS,
@@ -126,137 +117,70 @@ export const renderScreeningImage = async (
   );
 };
 
-// Reel stills: textless posters first (the first carries the hook), then
-// backdrops. Raw bytes.
-const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
+// Line-up reel shots are posters, never stills: posters are composed for
+// a vertical frame and hold up full screen, while TMDB stills are often low
+// resolution or landscape promo art. Textless key art first, then the
+// poster from our DB, then a backdrop as the last resort.
+const fetchReelPoster = async (screening: Screening): Promise<Buffer | null> => {
   const art = await getMovieArt(screening.movie);
-  const paths = [...art.textlessPosters, ...art.backdrops];
-  if (paths.length === 0 && screening.movie.posterUrl) {
-    paths.push(screening.movie.posterUrl);
-  }
-  const images = await Promise.all(
-    paths.map((p) => fetchImageBuffer(resolveImageUrl(p)))
-  );
-  return images.filter((i): i is Buffer => i !== null);
+  const path =
+    art.textlessPoster ?? screening.movie.posterUrl ?? screening.movie.backdropUrl;
+  return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
 };
 
 // Shots are rendered at twice the output size so the punch-in zoom stays
 // sharp.
 const SHOT_SCALE = 2;
-// Landscape stills at least this wide fill the frame: a 1920 px TMDB still
-// keeps ~600 px after a 9:16 crop, which holds up at phone size with a
-// light sharpen. Narrower ones would turn to mush and get the boxed layout.
-const FULL_BLEED_MIN_WIDTH = 1600;
-// Fallback layout: landscape stills sit a little above centre.
-const LANDSCAPE_CENTER = 0.44;
+export const REEL_SHOT_SCALE = SHOT_SCALE;
 
-type Shot = { image: Buffer; fullBleed: boolean };
-
-// Every shot fills the vertical frame: portrait art and high-resolution
-// landscape stills are cropped around their attention focus. Only a
-// low-resolution landscape still, which would turn soft if cropped, is
-// shown whole over a blurred copy of itself, and those shots go last.
-const toShot = async (image: Buffer): Promise<Shot> => {
-  const width = REEL_SIZE.width * SHOT_SCALE;
-  const height = REEL_SIZE.height * SHOT_SCALE;
-  const meta = await sharp(image).metadata();
-  const portrait = (meta.height ?? 0) > (meta.width ?? 0);
-
-  if (portrait || (meta.width ?? 0) >= FULL_BLEED_MIN_WIDTH) {
-    const cropped = await sharp(image)
-      .resize({ width, height, fit: "cover", position: sharp.strategy.attention })
-      .sharpen({ sigma: 0.8 })
-      .jpeg({ quality: 90 })
-      .toBuffer();
-    return { image: cropped, fullBleed: true };
-  }
-
-  const background = await sharp(image)
-    .resize({ width: width / 4, height: height / 4, fit: "cover" })
-    .blur(18)
-    .modulate({ brightness: 0.45, saturation: 0.9 })
-    .resize({ width, height })
-    .toBuffer();
-  const foreground = await sharp(image).resize({ width }).toBuffer();
-  const fgHeight = (await sharp(foreground).metadata()).height ?? 0;
-  const boxed = await sharp(background)
-    .composite([
-      {
-        input: foreground,
-        left: 0,
-        top: Math.max(0, Math.round(height * LANDSCAPE_CENTER - fgHeight / 2)),
-      },
-    ])
+const toShot = (image: Buffer): Promise<Buffer> =>
+  sharp(image)
+    .resize({
+      width: REEL_SIZE.width * SHOT_SCALE,
+      height: REEL_SIZE.height * SHOT_SCALE,
+      fit: "cover",
+      position: sharp.strategy.attention,
+    })
     .jpeg({ quality: 90 })
     .toBuffer();
-  return { image: boxed, fullBleed: false };
-};
 
-export const REEL_SHOT_SCALE = SHOT_SCALE;
-export const REEL_MAX_STILLS = 8;
+const BLACK_SHOT = () =>
+  sharp({
+    create: {
+      width: REEL_SIZE.width * SHOT_SCALE,
+      height: REEL_SIZE.height * SHOT_SCALE,
+      channels: 3,
+      background: "#000000",
+    },
+  })
+    .jpeg()
+    .toBuffer();
 
-// Everything the reel edit needs: wide and tight shots per still, the
-// overlays (transparent PNG) and the end card.
-export const renderReelAssets = async (screening: Screening) => {
-  const stills = await fetchReelStills(screening);
-  if (stills.length === 0) {
-    throw new Error("Reel needs at least one backdrop or poster image");
-  }
-  const rendered = await Promise.all(stills.map((still) => toShot(still)));
-  // The hook takes the first full-frame shot (key art when there is one),
-  // then full-frame shots come before boxed ones.
-  const hook = rendered.find((s) => s.fullBleed) ?? rendered[0]!;
-  const rest = rendered.filter((s) => s !== hook);
-  const shots = [
-    hook,
-    ...rest.filter((s) => s.fullBleed),
-    ...rest.filter((s) => !s.fullBleed),
-  ]
-    .slice(0, REEL_MAX_STILLS)
-    .map((s) => s.image);
-
-  const today = todayInPoland();
-  const { date } = splitScreeningDate(screening.date);
-  const age = Number(today.slice(0, 4)) - screening.movie.productionYear;
-  const hookLines = [
-    `${describeWhen(date, today)}, ${screening.cinema.city.name}`,
-    age >= 40 ? `klasyka sprzed ${age} lat` : "na dużym ekranie",
-  ];
-  const { weekday, dayMonth, time } = describeScreeningDay(screening);
-  const { cinema } = screening;
+// Everything the line-up reel needs: a poster shot and a card per
+// screening, the hook captions and the end card.
+export const renderReelAssets = async (
+  lineup: Screening[],
+  hookLines: [string, string]
+) => {
+  const posters = await Promise.all(lineup.map(fetchReelPoster));
+  const shots = await Promise.all(
+    posters.map((poster) => (poster ? toShot(poster) : BLACK_SHOT()))
+  );
 
   const png = (element: Parameters<typeof satori>[0]) =>
     renderElement(element, REEL_SIZE, "png");
-  const [hookFirst, hookFull, title, when, where, end] = await Promise.all([
+  const [hookFirst, hookFull, end, ...items] = await Promise.all([
     png(<ReelCaption lines={hookLines.slice(0, 1)} />),
     png(<ReelCaption lines={hookLines} />),
-    png(<ReelTitle screening={screening} />),
-    png(
-      <ReelInfo
-        eyebrow={weekday}
-        big={dayMonth}
-        small={time ? `godz. ${time}` : undefined}
-      />
+    renderElement(<ReelEnd />, REEL_SIZE),
+    ...lineup.map((screening, index) =>
+      png(
+        <ReelLineupItem screening={screening} index={index} total={lineup.length} />
+      )
     ),
-    png(
-      <ReelInfo
-        eyebrow={cinema.city.name}
-        big={cinema.name}
-        small={
-          cinema.instagramUsername
-            ? `@${cinema.instagramUsername} · ${cinema.street}`
-            : cinema.street
-        }
-      />
-    ),
-    renderElement(<ReelEnd screening={screening} />, REEL_SIZE),
   ]);
 
-  return {
-    shots,
-    overlays: { hookFirst, hookFull, title, when, where },
-    end,
-  };
+  return { shots, hookFirst: hookFirst!, hookFull: hookFull!, items, end: end! };
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per

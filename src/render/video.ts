@@ -20,38 +20,43 @@ const SHAKE_PX = 18;
 const SHAKE_S = 0.2;
 const FLASH_S = 0.15;
 const MUSIC_GAIN = 0.9;
+// Each screening card stays up at least this long so title and date can
+// be read; the hook a little longer for its two caption steps.
+const MIN_CARD_S = 1.4;
+const MIN_HOOK_S = 1.6;
+// Longer than this and the edit drags; slow tracks (often detected at half
+// tempo) are cut on half beats instead.
+const MAX_EDIT_S = 14;
 
-type Overlay = "hookFirst" | "hookFull" | "title" | "when" | "where";
 type Segment = {
-  beats: number; // length in beats
-  shot?: number; // index of the still
-  overlay?: Overlay;
+  beats: number;
+  shot?: number; // index into the poster shots
+  overlay?: string; // overlay file name
   punch?: boolean;
   drop?: boolean; // white flash + shake
-  dim?: boolean;
   end?: boolean;
 };
 
-// The edit, in beats (16 in total, 7-10 s depending on tempo): a boxed
-// hook on the key art, the drop, a different still on every fast cut with
-// the title landing mid-run, date and venue over dimmed stills, and a
-// short end card that loops back to the hook.
-const EDIT: Segment[] = [
-  { beats: 1, shot: 0, overlay: "hookFirst", punch: true },
-  { beats: 1, shot: 0, overlay: "hookFull" },
-  { beats: 1, shot: 1, punch: true, drop: true },
-  { beats: 1, shot: 2, punch: true },
-  { beats: 1, shot: 3, punch: true },
-  { beats: 1, shot: 4, punch: true },
-  { beats: 1, shot: 5, overlay: "title", punch: true },
-  { beats: 1, shot: 6, overlay: "title", punch: true },
-  { beats: 1, shot: 7, overlay: "title", punch: true },
-  { beats: 1, shot: 1, overlay: "title", punch: true },
-  { beats: 2, shot: 2, overlay: "when", punch: true, dim: true },
-  { beats: 2, shot: 3, overlay: "where", punch: true, dim: true },
-  { beats: 2, end: true },
-];
-const TOTAL_BEATS = EDIT.reduce((sum, s) => sum + s.beats, 0);
+// The edit, in beats: the boxed hook in two steps over the first poster,
+// then one card per screening (the first lands on the drop), then a short
+// end card that loops back to the hook.
+const buildEdit = (count: number, period: number): Segment[] => {
+  const hookBeats = Math.max(2, Math.ceil(MIN_HOOK_S / period));
+  const cardBeats = Math.max(2, Math.ceil(MIN_CARD_S / period));
+  const firstHook = Math.ceil(hookBeats / 2);
+  return [
+    { beats: firstHook, shot: 0, overlay: "hook-first.png", punch: true },
+    { beats: hookBeats - firstHook, shot: 0, overlay: "hook-full.png" },
+    ...Array.from({ length: count }, (_, i): Segment => ({
+      beats: cardBeats,
+      shot: i,
+      overlay: `item-${i}.png`,
+      punch: true,
+      drop: i === 0,
+    })),
+    { beats: 2, end: true },
+  ];
+};
 
 const run = async (args: string[]): Promise<void> => {
   const proc = Bun.spawn([FFMPEG, "-y", "-loglevel", "error", ...args], {
@@ -63,37 +68,49 @@ const run = async (args: string[]): Promise<void> => {
   }
 };
 
-// Longer than this and the edit drags; slow tracks (often detected at half
-// tempo) are cut on half beats instead.
-const MAX_EDIT_S = 11;
-
-// Beat times from the track, extended with its period if the track's grid
-// is shorter than the edit.
-const beatTimes = (beats: number[], period: number, count: number): number[] => {
-  const origin = beats[0] ?? 0;
-  let times = beats.map((b) => b - origin);
-  while (period * (count - 1) > MAX_EDIT_S) {
-    times = times.flatMap((t) => [t, t + period / 2]);
-    period /= 2;
-  }
-  while (times.length < count) times.push((times.at(-1) ?? -period) + period);
-  return times.slice(0, count);
+// Beat times relative to the first beat, halved for slow tracks and
+// extended with the period past the end of the detected grid.
+const beatGrid = (beats: number[], period: number) => {
+  let times = beats.map((b) => b - (beats[0] ?? 0));
+  return {
+    times,
+    period,
+    halve() {
+      times = times.flatMap((t) => [t, t + period / 2]);
+      period /= 2;
+      this.times = times;
+      this.period = period;
+    },
+    at(index: number): number {
+      return times[index] ?? (times.at(-1) ?? 0) + (index - times.length + 1) * period;
+    },
+  };
 };
 
-export const renderScreeningReel = async (
-  screening: Screening
+// Line-up reel: the screenings in `lineup` as poster cards cut on the beat
+// of a music bed matched to `moodSource` (the top-scored screening).
+export const renderLineupReel = async (
+  lineup: Screening[],
+  hookLines: [string, string],
+  moodSource: Screening
 ): Promise<Buffer> => {
-  const genreIds = (screening.movie.movies_genres ?? []).map((g) => g.genreId);
-  const mood = pickMood(genreIds, screening.movie.productionYear);
-  const variant = (screening.movie.title.length % 2) as 0 | 1;
+  const genreIds = (moodSource.movie.movies_genres ?? []).map((g) => g.genreId);
+  const mood = pickMood(genreIds, moodSource.movie.productionYear);
+  const variant = (moodSource.movie.title.length % 2) as 0 | 1;
   const music = join(AUDIO_DIR, musicFile(mood, variant));
 
-  const [assets, grid] = await Promise.all([
-    renderReelAssets(screening),
+  const [assets, detected] = await Promise.all([
+    renderReelAssets(lineup, hookLines),
     detectBeats(music),
   ]);
-  const times = beatTimes(grid.beats, grid.period, TOTAL_BEATS + 1);
-  const musicStart = grid.beats[0] ?? 0;
+  const grid = beatGrid(detected.beats, detected.period);
+  let edit = buildEdit(lineup.length, grid.period);
+  const beatsOf = (e: Segment[]) => e.reduce((sum, s) => sum + s.beats, 0);
+  while (grid.at(beatsOf(edit)) > MAX_EDIT_S && grid.period > 0.25) {
+    grid.halve();
+    edit = buildEdit(lineup.length, grid.period);
+  }
+  const musicStart = detected.beats[0] ?? 0;
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
@@ -105,10 +122,11 @@ export const renderScreeningReel = async (
     };
     await Promise.all([
       ...assets.shots.map((b, i) => write(`shot-${i}.jpg`, b)),
-      ...Object.entries(assets.overlays).map(([name, b]) => write(`${name}.png`, b)),
+      ...assets.items.map((b, i) => write(`item-${i}.png`, b)),
+      write("hook-first.png", assets.hookFirst),
+      write("hook-full.png", assets.hookFull),
       write("end.jpg", assets.end),
     ]);
-    const stills = assets.shots.length;
 
     const inputs: string[] = [];
     let inputCount = 0;
@@ -120,11 +138,10 @@ export const renderScreeningReel = async (
     const filters: string[] = [];
     let beat = 0;
     let dropAt = 0;
-    let previousStill = -1;
-    EDIT.forEach((segment, i) => {
-      const startFrame = Math.round(times[beat]! * FPS);
+    edit.forEach((segment, i) => {
+      const startFrame = Math.round(grid.at(beat) * FPS);
       beat += segment.beats;
-      const frames = Math.round(times[beat]! * FPS) - startFrame;
+      const frames = Math.round(grid.at(beat) * FPS) - startFrame;
       const seconds = frames / FPS + 0.1;
       const exact = `trim=end_frame=${frames},setpts=PTS-STARTPTS`;
 
@@ -134,21 +151,12 @@ export const renderScreeningReel = async (
         return;
       }
 
-      // With fewer stills than cuts, the shot index wraps; skip ahead when
-      // that would repeat the previous cut's still (the hook's two beats
-      // are one shot on purpose).
-      let still = segment.shot! % stills;
-      if (still === previousStill && segment.shot !== EDIT[i - 1]?.shot && stills > 1) {
-        still = (still + 1) % stills;
-      }
-      previousStill = still;
-      const input = addInput(files.get(`shot-${still}.jpg`)!, seconds);
+      const input = addInput(files.get(`shot-${segment.shot}.jpg`)!, seconds);
       const zoom = segment.punch
         ? `if(lt(on,${PUNCH_FRAMES}),${PUNCH_FROM}-${((PUNCH_FROM - 1) / PUNCH_FRAMES).toFixed(4)}*on,1)`
         : "1";
       let chain =
         `[${input}:v]zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},setsar=1`;
-      if (segment.dim) chain += ",eq=brightness=-0.12:saturation=0.85";
       if (segment.drop) {
         dropAt = startFrame / FPS;
         const jitter = `if(lt(t,${SHAKE_S}),${SHAKE_PX}*sin(t*160)*(1-t/${SHAKE_S}),0)`;
@@ -157,19 +165,15 @@ export const renderScreeningReel = async (
           `,pad=${W + SHAKE_PX * 2}:${H + SHAKE_PX * 2}:${SHAKE_PX}:${SHAKE_PX}:black` +
           `,crop=${W}:${H}:x='${SHAKE_PX}+${jitter}':y='${SHAKE_PX}-${jitter}'`;
       }
-      if (segment.overlay) {
-        const overlay = addInput(files.get(`${segment.overlay}.png`)!, seconds);
-        filters.push(`${chain}[b${i}]`);
-        filters.push(`[b${i}][${overlay}:v]overlay=0:0,${exact}[v${i}]`);
-      } else {
-        filters.push(`${chain},${exact}[v${i}]`);
-      }
+      const overlay = addInput(files.get(segment.overlay!)!, seconds);
+      filters.push(`${chain}[b${i}]`);
+      filters.push(`[b${i}][${overlay}:v]overlay=0:0,${exact}[v${i}]`);
     });
     filters.push(
-      `${EDIT.map((_, i) => `[v${i}]`).join("")}concat=n=${EDIT.length}:v=1:a=0,format=yuv420p[v]`
+      `${edit.map((_, i) => `[v${i}]`).join("")}concat=n=${edit.length}:v=1:a=0,format=yuv420p[v]`
     );
 
-    const total = Math.round(times[TOTAL_BEATS]! * FPS) / FPS;
+    const total = Math.round(grid.at(beat) * FPS) / FPS;
     const musicInput = inputCount++;
     const impactInput = inputCount++;
     inputs.push("-ss", musicStart.toFixed(3), "-i", music);

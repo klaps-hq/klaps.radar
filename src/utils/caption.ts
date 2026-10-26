@@ -62,15 +62,30 @@ const formatShortDate = (screening: Screening): string => {
   return `${Number(d)}.${m}${time ? `, ${time}` : ""}`;
 };
 
-// Caption for the weekly carousel: the line-up as a numbered list that
-// mirrors the slides, with city tags for every city in it.
-export const buildCarouselCaption = (lineup: Screening[]): string => {
+// Polish plural of "seans" for a count: 1 seans, 2-4 seanse, 5+ seansów
+// (12-14 take "seansów" too).
+export const pluralSeans = (n: number): string => {
+  if (n === 1) return "seans";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)
+    ? "seanse"
+    : "seansów";
+};
+
+// Caption for line-up posts (weekly carousel, line-up reel): the
+// screenings as a numbered list that mirrors the slides or cards, with
+// city tags for every city in it.
+export const buildCarouselCaption = (
+  lineup: Screening[],
+  heading = `Tydzień w kinach studyjnych: ${lineup.length} ${pluralSeans(lineup.length)}, które warto zobaczyć na dużym ekranie`
+): string => {
   const cities = [
     ...new Set(lineup.map((s) => toHashtagSlug(s.cinema.city.name))),
   ].filter(Boolean);
 
   return [
-    `Tydzień w kinach studyjnych: ${lineup.length} seansów, które warto zobaczyć na dużym ekranie`,
+    heading,
     "",
     ...lineup.map(
       (s, i) =>

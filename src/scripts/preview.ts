@@ -1,7 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { buildCaptionPreview } from "../publish";
+import { buildCaptionPreview, prepareLineupReel } from "../publish";
 import { renderCarouselImages, renderScreeningImage } from "../render/render";
-import { renderScreeningReel } from "../render/video";
 import type { Screening } from "../types/types";
 import { buildCarouselCaption } from "../utils/caption";
 import { fetchCandidate } from "../utils/candidate";
@@ -74,12 +73,15 @@ const main = async () => {
   const lead = screenings[0];
   if (!lead) throw new Error("No screenings to preview");
   const lineup = pickWeeklyLineup(screenings);
+  // The reel covers the next few days, like the cron job (today + 3).
+  const reelEnd = addDays(today, 3);
+  const nearby = screenings.filter((s) => s.date.slice(0, 10) <= reelEnd);
 
   await mkdir("previews", { recursive: true });
   const [post, story, reel, carousel] = await Promise.all([
     renderScreeningImage("post", lead),
     renderScreeningImage("story", lead),
-    renderScreeningReel(lead),
+    prepareLineupReel(nearby.length ? nearby : screenings),
     renderCarouselImages(lineup, {
       dateFrom: today,
       dateTo: addDays(today, 6),
@@ -89,15 +91,18 @@ const main = async () => {
   await Promise.all([
     Bun.write("previews/instagram-post.jpg", post),
     Bun.write("previews/instagram-story.jpg", story),
-    Bun.write("previews/instagram-reel.mp4", reel),
+    Bun.write("previews/instagram-reel.mp4", reel.video),
     ...carousel.map((slide, i) =>
       Bun.write(`previews/carousel-${i + 1}.jpg`, slide)
     ),
     Bun.write(
       "previews/captions.txt",
       [
-        "=== post / reel ===",
+        "=== post ===",
         buildCaptionPreview(lead),
+        "",
+        "=== reel ===",
+        reel.caption,
         "",
         "=== carousel ===",
         buildCarouselCaption(lineup),
@@ -107,7 +112,7 @@ const main = async () => {
   ]);
 
   console.log(
-    `Saved previews/: post, story, reel (${(reel.length / 1e6).toFixed(1)} MB), ${carousel.length} carousel slides, captions.txt`
+    `Saved previews/: post, story, reel (${reel.lineup.length} screenings, ${(reel.video.length / 1e6).toFixed(1)} MB), ${carousel.length} carousel slides, captions.txt`
   );
 };
 

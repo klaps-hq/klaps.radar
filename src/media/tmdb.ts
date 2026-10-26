@@ -134,3 +134,17 @@ const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
     return fallback;
   }
 };
+
+// Stable re-order that moves screenings whose movie has textless key art
+// to the front, for formats that show posters full screen. Looks up at most
+// `limit` screenings (TMDB calls are cached per movie).
+export const preferTextlessArt = async (
+  screenings: Screening[],
+  limit = 12
+): Promise<Screening[]> => {
+  const head = screenings.slice(0, limit);
+  const arts = await Promise.all(head.map((s) => getMovieArt(s.movie)));
+  const withArt = head.filter((_, i) => arts[i]!.textlessPoster);
+  const without = head.filter((_, i) => !arts[i]!.textlessPoster);
+  return [...withArt, ...without, ...screenings.slice(limit)];
+};

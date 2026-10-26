@@ -9,7 +9,8 @@ import {
 import { publishThreadsImage, refreshThreadsToken } from "./threads";
 import { API_URL, INTERNAL_API_KEY } from "./constants/env";
 import { renderCarouselImages, renderScreeningImage } from "./render/render";
-import { renderScreeningReel } from "./render/video";
+import { renderLineupReel } from "./render/video";
+import { preferTextlessArt } from "./media/tmdb";
 import type {
   FetchCandidateConfig,
   Platform,
@@ -19,6 +20,7 @@ import {
   buildCarouselCaption,
   buildHashtags,
   buildHook,
+  pluralSeans,
 } from "./utils/caption";
 import {
   fetchCandidate,
@@ -100,6 +102,38 @@ const buildCaption = (
   ].join("\n");
 };
 
+// Screenings in the line-up reel: few enough that each card can be read.
+const REEL_LINEUP_SIZE = 4;
+
+const formatDayMonth = (screening: Screening): string => {
+  const [, m, d] = splitScreeningDate(screening.date).date.split("-");
+  return `${Number(d)}.${m}`;
+};
+
+// Line-up reel for the coming days: picks the screenings (movies with
+// textless key art first, since posters fill the screen), renders the
+// video and writes the caption. Shared with the preview script.
+export const prepareLineupReel = async (candidates: Screening[]) => {
+  const lineup = pickWeeklyLineup(
+    await preferTextlessArt(candidates),
+    REEL_LINEUP_SIZE
+  );
+  const first = lineup[0]!;
+  const last = lineup.at(-1)!;
+  const span =
+    formatDayMonth(first) === formatDayMonth(last)
+      ? formatDayMonth(first)
+      : `${formatDayMonth(first)} – ${formatDayMonth(last)}`;
+  const count = `${lineup.length} ${pluralSeans(lineup.length)}`;
+  const hookLines: [string, string] = ["Najbliższe dni w kinie", `${count} · ${span}`];
+  const video = await renderLineupReel(lineup, hookLines, candidates[0] ?? first);
+  const caption = buildCarouselCaption(
+    lineup,
+    `Najbliższe dni w kinach studyjnych: ${count}, które warto zobaczyć na dużym ekranie`
+  );
+  return { lineup, video, caption };
+};
+
 // The Instagram feed caption, exposed for the design preview script.
 export const buildCaptionPreview = (screening: Screening): string =>
   buildCaption(screening, { mentionCinema: true });
@@ -126,14 +160,27 @@ const publishToPlatform = async (
   switch (platform) {
     case "instagram_reel": {
       await refreshInstagramToken();
-      const videoUrl = await uploadTemporaryMedia(
-        await renderScreeningReel(candidate),
-        "video"
-      );
+      const reel = await prepareLineupReel(candidates);
+      const videoUrl = await uploadTemporaryMedia(reel.video, "video");
+      // Reels take user tags and collaborators like posts; the cinemas of
+      // the line-up are tagged (up to Instagram's limits), no location.
+      const usernames = [
+        ...new Set(
+          reel.lineup
+            .map((s) => s.cinema.instagramUsername)
+            .filter((u): u is string => Boolean(u))
+        ),
+      ];
+      const collaborators = reel.lineup
+        .filter((s) => s.cinema.instagramUsername && s.cinema.instagramCollab)
+        .map((s) => s.cinema.instagramUsername!);
       const mediaId = await publishInstagramReel({
         videoUrl,
-        caption: buildCaption(candidate, { mentionCinema: true }),
-        ...getFeedEnrichment(candidate),
+        caption: reel.caption,
+        userTags: usernames.length ? usernames : undefined,
+        collaborators: collaborators.length
+          ? [...new Set(collaborators)].slice(0, 3)
+          : undefined,
       });
       return { mediaId, mediaUrl: videoUrl };
     }
@@ -230,7 +277,7 @@ export const createSocialMedia = async (
   }
 
   if (
-    platform === "instagram_carousel" &&
+    (platform === "instagram_carousel" || platform === "instagram_reel") &&
     pickWeeklyLineup(response.candidates).length < MIN_CAROUSEL_SCREENINGS
   ) {
     console.log(

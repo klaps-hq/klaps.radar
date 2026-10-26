@@ -65,7 +65,8 @@ const runJob = async (
 };
 
 new Cron(POST_CRON, { timezone: TIMEZONE }, () => runJob("instagram_post", 6));
-new Cron(REEL_CRON, { timezone: TIMEZONE }, () => runJob("instagram_reel", 6));
+// The reel covers the next few days, the Wednesday carousel the whole week.
+new Cron(REEL_CRON, { timezone: TIMEZONE }, () => runJob("instagram_reel", 3));
 new Cron(CAROUSEL_CRON, { timezone: TIMEZONE }, () =>
   runJob("instagram_carousel", 6)
 );
