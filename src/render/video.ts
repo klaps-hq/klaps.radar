@@ -36,8 +36,13 @@ const MIN_TAIL_S = 1.5;
 // Each card dissolves into the next, starting on the beat.
 const DISSOLVE_S = 0.4;
 
-const beatsFor = (seconds: number, period: number) =>
-  Math.max(MIN_BEATS, Math.ceil(seconds / period));
+// Nearest whole number of beats, but never under 90% of the target, so
+// a slightly slow tempo does not add almost a whole extra beat per card.
+const beatsFor = (seconds: number, period: number) => {
+  let beats = Math.max(MIN_BEATS, Math.round(seconds / period));
+  while (beats * period < seconds * 0.9) beats += 1;
+  return beats;
+};
 
 // Beat plan for the content (hook + cards) on a track: whole beats per
 // scene, on half beats for slow tracks so it fits before the ending.

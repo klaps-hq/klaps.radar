@@ -43,14 +43,15 @@ export type BeatGrid = {
 };
 
 // The music "ends" where it last stays within this many dB of its typical
-// loudness; after that it only decays. The final hit is the strongest onset
-// in the window just before that point.
+// loudness; after that it only decays. The final hit is the last strong
+// onset in the window just before that point.
 const DECAY_DB = 12;
 const ENDING_WINDOW_S = 1.5;
 const LOUDNESS_WINDOW_S = 0.05;
+const ENDING_HIT_RATIO = 0.7;
 
-// Time of the final hit: the strongest onset shortly before the point after
-// which the track never returns to near its typical loudness.
+// Time of the final hit: the last strong onset shortly before the point
+// after which the track never returns to near its typical loudness.
 const findEnding = (samples: Float32Array, onset: Float32Array, stepS: number): number => {
   const win = Math.round(LOUDNESS_WINDOW_S * SAMPLE_RATE);
   const levels: number[] = [];
@@ -67,11 +68,15 @@ const findEnding = (samples: Float32Array, onset: Float32Array, stepS: number): 
 
   const from = Math.max(0, Math.floor((decayAt - ENDING_WINDOW_S) / stepS));
   const to = Math.min(onset.length - 1, Math.ceil(decayAt / stepS));
-  let best = from;
+  let strongest = 0;
+  for (let f = from; f <= to; f += 1) strongest = Math.max(strongest, onset[f]!);
+  // The last hit that is nearly as strong as the strongest one: endings
+  // often repeat the hit, and the music ends on the final repetition.
+  let finalHit = from;
   for (let f = from; f <= to; f += 1) {
-    if (onset[f]! > onset[best]!) best = f;
+    if (onset[f]! >= strongest * ENDING_HIT_RATIO) finalHit = f;
   }
-  return best * stepS;
+  return finalHit * stepS;
 };
 
 export const detectBeats = async (file: string, maxSeconds = 12): Promise<BeatGrid> => {

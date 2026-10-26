@@ -14,50 +14,50 @@ export type Mood =
   | "epic"
   | "drama";
 
-// Prompted like the beats behind short-form movie edits, not like trailer
-// beds: the drums are in from the first bar and every kick is clear enough
-// to cut on. Each track also has a real ending, a final stinger hit about
-// 2.5 s before the end followed by its tail, so the reel's end card can
-// land on it instead of the music being cut off mid-phrase.
+// Understated, arthouse-leaning beds that suit klaps' calm cards: a clear
+// but soft pulse to change cards on, and a real ending (a final chord or
+// hit about 3 s before the end, then a natural decay) so the end card can
+// land on it instead of the music being cut off. Long enough for a hook
+// and four cards before the ending.
 const MUSIC_STYLE =
-  "instrumental only, no vocals, short-form video edit beat, drums from the first bar, punchy kick and snare, steady tempo, loud modern mix, the track builds and then ends with one big final stinger hit at 12.5 seconds followed only by its reverb tail and silence, no fade out";
+  "instrumental only, no vocals, tasteful and understated, steady clear pulse around 100 bpm with soft drums or percussion so the beat is audible, 20 seconds long, ends with one clear final chord and hit at 17 seconds followed by a natural decay to silence, no fade out";
 
 export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
   classic: [
-    `jazz hip hop, dusty swing sample chop, upright bass, boom bap drums, vinyl crackle, 92 bpm, ${MUSIC_STYLE}`,
-    `electro swing, brass stabs, four on the floor kick, groovy 1930s feel, 120 bpm, ${MUSIC_STYLE}`,
+    `vintage jazz trio, brushed drums, upright bass, warm piano, 1950s cinema, ${MUSIC_STYLE}`,
+    `silent film era piano with light swing percussion, elegant and nostalgic, ${MUSIC_STYLE}`,
   ],
   noir: [
-    `dark phonk, cowbell melody, distorted 808 bass, drift phonk drums, 130 bpm, ${MUSIC_STYLE}`,
-    `noir trap, muted trumpet sample, heavy 808, crisp hi-hats, moody night city, 140 bpm, ${MUSIC_STYLE}`,
+    `film noir jazz, muted trumpet, brushed snare, walking bass, late night, ${MUSIC_STYLE}`,
+    `moody neo-noir, soft electric piano, low bass pulse, rim clicks, ${MUSIC_STYLE}`,
   ],
   horror: [
-    `horror trap, eerie music box sample, distorted 808 slides, hard hitting drums, 140 bpm, ${MUSIC_STYLE}`,
-    `dark drill beat, haunting choir sample, sliding 808, menacing, 142 bpm, ${MUSIC_STYLE}`,
+    `dark ambient tension, low piano notes, soft heartbeat kick, eerie but restrained, ${MUSIC_STYLE}`,
+    `unsettling minimal strings, ticking percussion, quiet dread, ${MUSIC_STYLE}`,
   ],
   scifi: [
-    `synthwave drive, punchy gated snare, pulsing bassline, neon arpeggio, 118 bpm, ${MUSIC_STYLE}`,
-    `cyberpunk electronic beat, glitchy synths, heavy sidechained bass, 128 bpm, ${MUSIC_STYLE}`,
+    `minimal analog synth pulse, warm arpeggio, soft electronic drums, retro future, ${MUSIC_STYLE}`,
+    `ambient electronica, glassy synths, gentle steady beat, sense of space, ${MUSIC_STYLE}`,
   ],
   romance: [
-    `lo-fi romantic beat, warm piano chords, soft kick and snare, slowed vibe, 85 bpm, ${MUSIC_STYLE}`,
-    `romantic r&b beat, dreamy electric piano, deep bass, finger snaps, 90 bpm, ${MUSIC_STYLE}`,
+    `warm solo piano with soft strings and light percussion, tender, ${MUSIC_STYLE}`,
+    `French cinema waltz, accordion and nylon guitar, soft brushes, ${MUSIC_STYLE}`,
   ],
   comedy: [
-    `bouncy funk beat, slap bass, playful clavinet, tight drums, 110 bpm, ${MUSIC_STYLE}`,
-    `upbeat quirky pop beat, pizzicato hook, handclaps, bouncy bass, 115 bpm, ${MUSIC_STYLE}`,
+    `light jazz swing, playful upright bass, brushed drums, clarinet, ${MUSIC_STYLE}`,
+    `bouncy pizzicato strings, glockenspiel, soft claps, charming, ${MUSIC_STYLE}`,
   ],
   epic: [
-    `epic orchestral trap, big string ostinato, heavy 808 drops, braams, 140 bpm, ${MUSIC_STYLE}`,
-    `hard hitting cinematic hip hop, brass hits, taiko and trap drums, 95 bpm, ${MUSIC_STYLE}`,
+    `cinematic string ostinato with soft taiko pulse, noble and restrained, ${MUSIC_STYLE}`,
+    `wide western guitar, slow galloping rhythm, open landscape, ${MUSIC_STYLE}`,
   ],
   drama: [
-    `emotional piano drill beat, melancholic piano, sliding 808, crisp hats, 140 bpm, ${MUSIC_STYLE}`,
-    `cinematic emotional hip hop, cello sample, deep kick, slow powerful groove, 88 bpm, ${MUSIC_STYLE}`,
+    `felt piano and cello, minimal and intimate, soft pulse, ${MUSIC_STYLE}`,
+    `European art cinema, string quartet and ambient guitar, gentle steady rhythm, ${MUSIC_STYLE}`,
   ],
 };
 
-export const MUSIC_LENGTH_MS = 15000;
+export const MUSIC_LENGTH_MS = 20000;
 
 export type Sfx =
   | "projector"
