@@ -55,3 +55,33 @@ export const buildHashtags = (screening: Screening): string => {
     " "
   );
 };
+
+const formatShortDate = (screening: Screening): string => {
+  const { date, time } = splitScreeningDate(screening.date);
+  const [, m, d] = date.split("-");
+  return `${Number(d)}.${m}${time ? `, ${time}` : ""}`;
+};
+
+// Caption for the weekly carousel: the line-up as a numbered list that
+// mirrors the slides, with city tags for every city in it.
+export const buildCarouselCaption = (lineup: Screening[]): string => {
+  const cities = [
+    ...new Set(lineup.map((s) => toHashtagSlug(s.cinema.city.name))),
+  ].filter(Boolean);
+
+  return [
+    `Tydzień w kinach studyjnych: ${lineup.length} seansów, które warto zobaczyć na dużym ekranie`,
+    "",
+    ...lineup.map(
+      (s, i) =>
+        `${i + 1}. ${s.movie.title} (${s.movie.productionYear}), ${formatShortDate(s)}, ${s.cinema.name}${
+          s.cinema.instagramUsername ? ` (@${s.cinema.instagramUsername})` : ""
+        }, ${s.cinema.city.name}`
+    ),
+    "",
+    "Zapisz post, żeby nie przegapić, i oznacz osobę, z którą idziesz.",
+    "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
+    "",
+    [...BASE_HASHTAGS, ...cities.map((c) => `#kino${c}`)].join(" "),
+  ].join("\n");
+};

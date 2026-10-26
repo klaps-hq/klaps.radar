@@ -62,7 +62,7 @@ src/
 ├── scripts/
 │   ├── create/          # CLI entrypoints per platform (post/story)
 │   ├── cron.ts          # Long-running scheduler (container entrypoint)
-│   └── preview.ts       # Renders preview JPEGs without publishing
+│   └── preview.ts       # Renders every format into previews/ without publishing
 ├── types/               # Shared TypeScript types
 ├── utils/               # Candidate fetching, date formatting, token refresh
 ├── facebook.ts          # Facebook Graph API client
@@ -74,13 +74,15 @@ assets/                  # Fonts used by satori
 
 ## Scheduling
 
-The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https://github.com/hexagon/croner), Europe/Warsaw). Posts are staggered across platforms so followers do not see the same artwork everywhere at once; stories run two slots a day within a single cron expression.
+The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https://github.com/hexagon/croner), Europe/Warsaw). Posts are staggered across platforms so followers do not see the same artwork everywhere at once; stories run two slots a day within a single cron expression. The Instagram feed gets one item a day in rotating formats: image posts, reels (an 8 s pan over the backdrop, rendered with ffmpeg) and a weekly carousel of the five best screenings, at most two per city. Feed formats share one 30-day movie cooldown in the API.
 
 | Job             | Variable            | Default          | Fires at    |
 | --------------- | ------------------- | ---------------- | ----------- |
 | Instagram story | `IG_STORY_CRON`     | `30 8,17 * * *`  | 8:30, 17:30 |
 | Facebook story  | `FB_STORY_CRON`     | `45 8,17 * * *`  | 8:45, 17:45 |
-| Instagram post  | `IG_POST_CRON`      | `30 11 * * *`    | 11:30       |
+| Instagram post  | `IG_POST_CRON`      | `30 11 * * 0,1,5` | Mon, Fri, Sun 11:30 |
+| Instagram reel  | `IG_REEL_CRON`      | `30 18 * * 2,4,6` | Tue, Thu, Sat 18:30 |
+| Instagram carousel | `IG_CAROUSEL_CRON` | `30 11 * * 3`  | Wed 11:30 (weekly line-up) |
 | Facebook post   | `FB_POST_CRON`      | `0 13 * * *`     | 13:00       |
 | Threads post    | `THREADS_POST_CRON` | `30 18 * * *`    | 18:30       |
 
@@ -133,8 +135,10 @@ THREADS_ACCESS_TOKEN=your-threads-token
 # Install dependencies
 bun install
 
-# Preview the templates (writes previews/instagram-post.jpg and previews/instagram-story.jpg)
+# Preview every format (post, story, reel mp4, carousel slides, captions) into previews/
 bun run preview
+# Same with the real upcoming candidates from the API (read-only, needs API_URL + INTERNAL_API_KEY)
+bun run preview --live
 
 # Publish manually
 bun run create:instagram-post <dateFrom> <dateTo> [numberOfCandidates] [minScore]

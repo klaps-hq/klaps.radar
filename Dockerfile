@@ -12,6 +12,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# ffmpeg renders the reel videos (src/render/video.ts).
+RUN apk add --no-cache ffmpeg
+
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 radar
 

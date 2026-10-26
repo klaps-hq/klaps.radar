@@ -49,5 +49,6 @@ export const formatDuration = (minutes: number | null): string | null => {
 
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return hours > 0 ? `${hours}h ${rest}m` : `${rest}m`;
+  if (hours === 0) return `${rest}m`;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
 };

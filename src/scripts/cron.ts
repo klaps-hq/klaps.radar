@@ -13,7 +13,12 @@ const TIMEZONE = "Europe/Warsaw";
 // Posts are staggered across platforms so followers who track us in more
 // than one place do not see the same artwork three times in a row; stories
 // run two slots (morning commute, after work) within a single expression.
-const POST_CRON = process.env.IG_POST_CRON || "30 11 * * *";
+// The Instagram feed gets one item a day in rotating formats: image posts
+// late morning (Mon, Fri, Sun), reels in the evening (Tue, Thu, Sat) and
+// the weekly line-up carousel on Wednesday, ahead of the weekend.
+const POST_CRON = process.env.IG_POST_CRON || "30 11 * * 0,1,5";
+const REEL_CRON = process.env.IG_REEL_CRON || "30 18 * * 2,4,6";
+const CAROUSEL_CRON = process.env.IG_CAROUSEL_CRON || "30 11 * * 3";
 const STORY_CRON = process.env.IG_STORY_CRON || "30 8,17 * * *";
 const FB_POST_CRON = process.env.FB_POST_CRON || "0 13 * * *";
 const FB_STORY_CRON = process.env.FB_STORY_CRON || "45 8,17 * * *";
@@ -60,6 +65,10 @@ const runJob = async (
 };
 
 new Cron(POST_CRON, { timezone: TIMEZONE }, () => runJob("instagram_post", 6));
+new Cron(REEL_CRON, { timezone: TIMEZONE }, () => runJob("instagram_reel", 6));
+new Cron(CAROUSEL_CRON, { timezone: TIMEZONE }, () =>
+  runJob("instagram_carousel", 6)
+);
 new Cron(STORY_CRON, { timezone: TIMEZONE }, () =>
   runJob("instagram_story", 1, STORIES_PER_DAY)
 );
@@ -88,5 +97,5 @@ if (isThreadsConfigured()) {
 }
 
 console.log(
-  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-story: "${STORY_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
+  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-reel: "${REEL_CRON}", ig-carousel: "${CAROUSEL_CRON}", ig-story: "${STORY_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
 );

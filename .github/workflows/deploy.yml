@@ -102,6 +102,8 @@ jobs:
             THREADS_ACCESS_TOKEN=${{ secrets.THREADS_ACCESS_TOKEN }}
             IG_POST_CRON=${{ secrets.IG_POST_CRON }}
             IG_STORY_CRON=${{ secrets.IG_STORY_CRON }}
+            IG_REEL_CRON=${{ secrets.IG_REEL_CRON }}
+            IG_CAROUSEL_CRON=${{ secrets.IG_CAROUSEL_CRON }}
             FB_POST_CRON=${{ secrets.FB_POST_CRON }}
             FB_STORY_CRON=${{ secrets.FB_STORY_CRON }}
             THREADS_POST_CRON=${{ secrets.THREADS_POST_CRON }}

@@ -1,6 +1,8 @@
 export type Platform =
   | "instagram_post"
   | "instagram_story"
+  | "instagram_reel"
+  | "instagram_carousel"
   | "facebook_post"
   | "facebook_story"
   | "threads_post";
