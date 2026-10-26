@@ -1,5 +1,6 @@
 import satori from "satori";
 import sharp from "sharp";
+import { getMovieArt } from "../media/tmdb";
 import type { Screening } from "../types/types";
 import {
   CarouselCover,
@@ -7,6 +8,14 @@ import {
   STRIP_SIZE,
   type CarouselEntry,
 } from "./carousel";
+import {
+  ReelDateScene,
+  ReelEndCard,
+  ReelIntro,
+  ReelPlaceScene,
+  ReelTitleScene,
+  REEL_SIZE,
+} from "./reel";
 import {
   getCardSize,
   LAYOUTS,
@@ -89,14 +98,62 @@ const renderElement = async (
     : image.jpeg({ quality: 92 }).toBuffer();
 };
 
+// Portrait cards prefer TMDB's textless key art, which is composed for a
+// vertical frame; landscape slots (carousel strips) keep the backdrop.
 const fetchScreeningImage = async (
   screening: Screening,
   box: Box,
   size?: string
 ): Promise<string | null> => {
-  const path = getScreeningImagePath(screening);
+  const portrait = box.height > box.width;
+  const art = portrait ? await getMovieArt(screening.movie) : null;
+  const path = art?.textlessPoster ?? getScreeningImagePath(screening);
   const image = path ? await fetchImageBuffer(resolveImageUrl(path, size)) : null;
   return image ? cropToBox(image, box) : null;
+};
+
+// Stills for the reel montage, most portrait-friendly first: textless key
+// art (if any), then backdrops. Raw bytes; the video pipeline crops them.
+export const fetchReelImages = async (
+  screening: Screening
+): Promise<Buffer[]> => {
+  const art = await getMovieArt(screening.movie);
+  const paths = [
+    ...(art.textlessPoster ? [art.textlessPoster] : []),
+    ...art.backdrops,
+  ];
+  if (paths.length === 0 && screening.movie.posterUrl) {
+    paths.push(screening.movie.posterUrl);
+  }
+  const images = await Promise.all(
+    paths.map((p) => fetchImageBuffer(resolveImageUrl(p)))
+  );
+  return images.filter((i): i is Buffer => i !== null);
+};
+
+// Crops an image to `box` around its attention focus, as raw bytes.
+export const cropImage = (image: Buffer, box: Box): Promise<Buffer> =>
+  sharp(image)
+    .resize({
+      width: box.width,
+      height: box.height,
+      fit: "cover",
+      position: sharp.strategy.attention,
+    })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+
+// Intro/end cards (opaque JPEG) and the three scene overlays (transparent
+// PNG) of the reel montage.
+export const renderReelCards = async (screening: Screening) => {
+  const [intro, title, date, place, end] = await Promise.all([
+    renderElement(<ReelIntro screening={screening} />, REEL_SIZE),
+    renderElement(<ReelTitleScene screening={screening} />, REEL_SIZE, "png"),
+    renderElement(<ReelDateScene screening={screening} />, REEL_SIZE, "png"),
+    renderElement(<ReelPlaceScene screening={screening} />, REEL_SIZE, "png"),
+    renderElement(<ReelEndCard screening={screening} />, REEL_SIZE),
+  ]);
+  return { intro, title, date, place, end };
 };
 
 export const renderScreeningImage = async (
@@ -109,48 +166,6 @@ export const renderScreeningImage = async (
     <ScreeningImage screening={screening} imageUrl={imageUrl} variant={variant} />,
     LAYOUTS[variant]
   );
-};
-
-// Transparent PNG with the scrims and text, laid over the animated backdrop
-// by the reel video pipeline.
-export const renderReelOverlay = (screening: Screening): Promise<Buffer> =>
-  renderElement(
-    <ScreeningImage screening={screening} imageUrl={null} variant="reel" />,
-    LAYOUTS.reel,
-    "png"
-  );
-
-// Raw backdrop (or poster) bytes for the video pipeline, which crops and
-// animates the image itself.
-export const fetchScreeningImageBuffer = async (
-  screening: Screening
-): Promise<Buffer | null> => {
-  const path = getScreeningImagePath(screening);
-  return path ? fetchImageBuffer(resolveImageUrl(path)) : null;
-};
-
-// Horizontal focus of an image once scaled to cover `box`, as a share of
-// the overflow (0 = left edge, 1 = right edge), from the same attention
-// strategy as the stills. The reel pans around this point.
-export const findHorizontalFocus = async (
-  image: Buffer,
-  box: Box
-): Promise<number> => {
-  const { info } = await sharp(image)
-    .resize({
-      width: box.width,
-      height: box.height,
-      fit: "cover",
-      position: sharp.strategy.attention,
-    })
-    .toBuffer({ resolveWithObject: true });
-  const meta = await sharp(image).metadata();
-  const scaledWidth = Math.round(
-    ((meta.width ?? box.width) * box.height) / (meta.height ?? box.height)
-  );
-  const overflow = scaledWidth - box.width;
-  if (overflow <= 0) return 0.5;
-  return Math.min(1, Math.max(0, Math.abs(info.cropOffsetLeft ?? 0) / overflow));
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per

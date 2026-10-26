@@ -24,6 +24,9 @@ type ScreeningCinema = {
 
 type ScreeningMovie = {
   title: string;
+  titleOriginal?: string | null;
+  // Genre links as returned by the API; only genreId is used (reel music).
+  movies_genres?: { genreId: number }[];
   description: string | null;
   productionYear: number;
   duration: number | null;
