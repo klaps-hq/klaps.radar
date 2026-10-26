@@ -7,7 +7,7 @@ import { DISPLAY_LINE_HEIGHT } from "./template";
 
 // Kinetic typography for the line-up reel. Each scene is a set of text
 // elements scattered over the frame; every element eases in on its own
-// beat (slide + fade + slight scale) and eases out just before the cut.
+// beat (slide + fade) and eases out just before the cut.
 // The text layer is rendered per frame with satori and composited over the
 // poster by the video pipeline.
 export const W = 1080;
@@ -45,13 +45,6 @@ export type Scene = {
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 export const easeOutCubic = (x: number) => 1 - (1 - clamp01(x)) ** 3;
 export const easeInOutSine = (x: number) => -(Math.cos(Math.PI * clamp01(x)) - 1) / 2;
-// Slight overshoot, so words "land" on the beat instead of just stopping.
-const easeOutBack = (x: number) => {
-  const c1 = 1.4;
-  const c3 = c1 + 1;
-  const t = clamp01(x);
-  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
-};
 
 // --- Text styles -------------------------------------------------------------
 
@@ -297,18 +290,19 @@ export const endScene = (start: number, end: number, beat: number): Scene => ({
 
 // --- Rendering ---------------------------------------------------------------
 
-type ElementState = { opacity: number; dx: number; dy: number; scale: number };
+type ElementState = { opacity: number; dx: number; dy: number };
 
 const stateAt = (el: TextElement, t: number): ElementState => {
   const p = (t - el.enter) / ENTER_S;
   const fadeIn = easeOutCubic(p);
-  const move = easeOutBack(p);
+  // Plain ease-out, no overshoot or scale: text glides in and stays still.
+  const move = easeOutCubic(p);
   const fadeOut = 1 - easeOutCubic((t - (el.exit - EXIT_S)) / EXIT_S);
   return {
     opacity: Math.max(0, Math.min(fadeIn, fadeOut)),
-    dx: el.dx * (1 - move),
-    dy: el.dy * (1 - move),
-    scale: 0.92 + 0.08 * move,
+    // Whole pixels, so glyphs do not shimmer between frames.
+    dx: Math.round(el.dx * (1 - move)),
+    dy: Math.round(el.dy * (1 - move)),
   };
 };
 
@@ -318,7 +312,7 @@ export const textSignature = (scene: Scene, t: number): string =>
   scene.elements
     .map((el) => {
       const s = stateAt(el, t);
-      return `${el.key}:${s.opacity.toFixed(3)}:${s.dx.toFixed(1)}:${s.dy.toFixed(1)}:${s.scale.toFixed(3)}`;
+      return `${el.key}:${s.opacity.toFixed(3)}:${s.dx}:${s.dy}`;
     })
     .join("|");
 
@@ -338,7 +332,7 @@ export const renderTextLayer = async (scene: Scene, t: number): Promise<Buffer> 
               ...(el.align === "left" ? { left: el.x } : { right: W - el.x }),
               display: "flex",
               opacity: s.opacity,
-              transform: `translate(${s.dx.toFixed(1)}px, ${s.dy.toFixed(1)}px) scale(${s.scale.toFixed(3)})`,
+              transform: `translate(${s.dx}px, ${s.dy}px)`,
             }}
           >
             {el.node}
