@@ -27,8 +27,6 @@ type ScreeningMovie = {
   titleOriginal?: string | null;
   // ISO timestamp; anniversaries in the "Klasyka tygodnia" reel.
   worldPremiereDate?: string | null;
-  // Filmweb users' rating (0-10), shown on single-film reels when high.
-  usersRating?: number | null;
   // Genre links as returned by the API; only genreId is used (reel music).
   movies_genres?: { genreId: number }[];
   description: string | null;

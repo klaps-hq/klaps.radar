@@ -255,9 +255,7 @@ export const cardScene = (
 };
 
 // Single-film reel hook ("Klasyka tygodnia", "Seans na niedzielę"): the
-// series, the title, year and running time, and the Filmweb rating when
-// it is worth showing.
-const RATING_SHOWN_FROM = 7;
+// series, the title, year and running time.
 
 export const spotlightHookScene = (
   screening: Screening,
@@ -268,10 +266,6 @@ export const spotlightHookScene = (
 ): Scene => {
   const { movie } = screening;
   const facts = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
-  const rating =
-    movie.usersRating && movie.usersRating >= RATING_SHOWN_FROM
-      ? `Filmweb ${movie.usersRating.toFixed(1).replace(".", ",")} / 10`
-      : null;
   return {
     start,
     end,
@@ -282,7 +276,6 @@ export const spotlightHookScene = (
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
       <Rule key="r" />,
       <Big key="b" text={facts} />,
-      ...(rating ? [<Small key="s" text={rating} />] : []),
     ],
   };
 };
