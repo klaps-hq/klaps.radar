@@ -14,45 +14,48 @@ export type Mood =
   | "epic"
   | "drama";
 
+// Prompted like the beats behind short-form movie edits, not like trailer
+// beds: the drums start on the first frame (no intro), every kick is clear
+// enough to cut on, and there is a drop early so the montage can hit it.
 const MUSIC_STYLE =
-  "instrumental only, no vocals, cinematic trailer bed, clear 4/4 pulse around 100 bpm, mixes well under sound effects";
+  "instrumental only, no vocals, short-form video edit beat, drums start immediately on the first beat with no intro, punchy kick and snare, big bass drop at 2 seconds, steady tempo, loud modern mix";
 
 export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
   classic: [
-    `silent film era ragtime piano, warm vintage recording, playful but elegant, ${MUSIC_STYLE}`,
-    `1940s Hollywood studio orchestra, lush strings and woodwinds, nostalgic golden age, ${MUSIC_STYLE}`,
+    `jazz hip hop, dusty swing sample chop, upright bass, boom bap drums, vinyl crackle, 92 bpm, ${MUSIC_STYLE}`,
+    `electro swing, brass stabs, four on the floor kick, groovy 1930s feel, 120 bpm, ${MUSIC_STYLE}`,
   ],
   noir: [
-    `film noir jazz, muted trumpet, brushed drums, walking upright bass, smoky and tense, ${MUSIC_STYLE}`,
-    `neo-noir thriller, pulsing low synth bass, ticking percussion, suspenseful, ${MUSIC_STYLE}`,
+    `dark phonk, cowbell melody, distorted 808 bass, drift phonk drums, 130 bpm, ${MUSIC_STYLE}`,
+    `noir trap, muted trumpet sample, heavy 808, crisp hi-hats, moody night city, 140 bpm, ${MUSIC_STYLE}`,
   ],
   horror: [
-    `horror trailer, eerie music box melody, dissonant strings, low drones, unsettling, ${MUSIC_STYLE}`,
-    `psychological horror, scraping strings, heartbeat kick drum, creeping dread, ${MUSIC_STYLE}`,
+    `horror trap, eerie music box sample, distorted 808 slides, hard hitting drums, 140 bpm, ${MUSIC_STYLE}`,
+    `dark drill beat, haunting choir sample, sliding 808, menacing, 142 bpm, ${MUSIC_STYLE}`,
   ],
   scifi: [
-    `retro 80s science fiction synthwave, analog arpeggios, wide pads, wonder, ${MUSIC_STYLE}`,
-    `space odyssey ambient, shimmering synth textures, slow building pulse, vast and awe-inspiring, ${MUSIC_STYLE}`,
+    `synthwave drive, punchy gated snare, pulsing bassline, neon arpeggio, 118 bpm, ${MUSIC_STYLE}`,
+    `cyberpunk electronic beat, glitchy synths, heavy sidechained bass, 128 bpm, ${MUSIC_STYLE}`,
   ],
   romance: [
-    `romantic jazz waltz, solo piano and soft strings, bittersweet Los Angeles evening, ${MUSIC_STYLE}`,
-    `French romantic cinema, accordion and nylon guitar, tender and wistful, ${MUSIC_STYLE}`,
+    `lo-fi romantic beat, warm piano chords, soft kick and snare, slowed vibe, 85 bpm, ${MUSIC_STYLE}`,
+    `romantic r&b beat, dreamy electric piano, deep bass, finger snaps, 90 bpm, ${MUSIC_STYLE}`,
   ],
   comedy: [
-    `quirky comedy, pizzicato strings, glockenspiel, bouncy bassoon, light and witty, ${MUSIC_STYLE}`,
-    `upbeat indie comedy, ukulele, hand claps, whistling-like synth lead, cheerful, ${MUSIC_STYLE}`,
+    `bouncy funk beat, slap bass, playful clavinet, tight drums, 110 bpm, ${MUSIC_STYLE}`,
+    `upbeat quirky pop beat, pizzicato hook, handclaps, bouncy bass, 115 bpm, ${MUSIC_STYLE}`,
   ],
   epic: [
-    `epic adventure trailer, driving orchestral ostinato, big taiko drums, heroic brass, ${MUSIC_STYLE}`,
-    `western adventure, twangy electric guitar, galloping rhythm, wide open spaces, ${MUSIC_STYLE}`,
+    `epic orchestral trap, big string ostinato, heavy 808 drops, braams, 140 bpm, ${MUSIC_STYLE}`,
+    `hard hitting cinematic hip hop, brass hits, taiko and trap drums, 95 bpm, ${MUSIC_STYLE}`,
   ],
   drama: [
-    `arthouse drama, felt piano, cello, minimal and intimate, emotional build, ${MUSIC_STYLE}`,
-    `European art cinema, ambient guitar and string quartet, contemplative, slow pulse, ${MUSIC_STYLE}`,
+    `emotional piano drill beat, melancholic piano, sliding 808, crisp hats, 140 bpm, ${MUSIC_STYLE}`,
+    `cinematic emotional hip hop, cello sample, deep kick, slow powerful groove, 88 bpm, ${MUSIC_STYLE}`,
   ],
 };
 
-export const MUSIC_LENGTH_MS = 14000;
+export const MUSIC_LENGTH_MS = 12000;
 
 export type Sfx =
   | "projector"

@@ -17,7 +17,7 @@ const CLASSIC_MIN_AGE_YEARS = 40;
 
 const BASE_HASHTAGS = ["#klaps", "#kinostudyjne", "#klasykakina"];
 
-const describeWhen = (screeningDate: string, today: string): string => {
+export const describeWhen = (screeningDate: string, today: string): string => {
   if (screeningDate === today) return "Dziś";
   if (screeningDate === addDays(today, 1)) return "Jutro";
 

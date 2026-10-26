@@ -9,14 +9,15 @@ import {
   type CarouselEntry,
 } from "./carousel";
 import {
-  INFO_STEPS,
-  ReelEndCard,
+  describeWhen as describeScreeningDay,
+  ReelCaption,
+  ReelEnd,
   ReelInfo,
-  ReelScreen,
-  ReelSlate,
+  ReelTitle,
   REEL_SIZE,
-  SCREEN_SIZE,
 } from "./reel";
+import { describeWhen } from "../utils/caption";
+import { splitScreeningDate, todayInPoland } from "../utils/format";
 import {
   getCardSize,
   LAYOUTS,
@@ -125,62 +126,113 @@ export const renderScreeningImage = async (
   );
 };
 
-// Stills for the reel's cinema screen: backdrops first (already 16:9),
-// key art only as a last resort. Raw bytes.
+// Reel stills. The first one carries the hook, so it is the textless key
+// art when TMDB has it (composed for portrait, strongest single image),
+// then the backdrops. Raw bytes.
 const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
   const art = await getMovieArt(screening.movie);
-  const paths = art.backdrops.length
-    ? art.backdrops
-    : [art.textlessPoster ?? screening.movie.posterUrl].filter(
-        (p): p is string => Boolean(p)
-      );
+  const paths = [
+    ...(art.textlessPoster ? [art.textlessPoster] : []),
+    ...art.backdrops,
+  ];
+  if (paths.length === 0 && screening.movie.posterUrl) {
+    paths.push(screening.movie.posterUrl);
+  }
   const images = await Promise.all(
     paths.map((p) => fetchImageBuffer(resolveImageUrl(p)))
   );
   return images.filter((i): i is Buffer => i !== null);
 };
 
-export const REEL_SCREEN_CUTS = 4;
+// Shots are rendered at twice the output size so the punch-in zoom stays
+// sharp.
+const SHOT_SCALE = 2;
+// A "tight" shot is a closer framing of the same still, so four stills
+// give eight different-looking cuts, like coverage from a real edit.
+const TIGHT_ZOOM = 1.7;
 
-// Every frame of the reel as a JPEG, in order: slate open and shut, the
-// screen cuts, the info lines landing, and the end card.
-export const renderReelFrames = async (screening: Screening) => {
+const toShot = async (image: Buffer, zoom: number): Promise<Buffer> => {
+  const width = REEL_SIZE.width * SHOT_SCALE;
+  const height = REEL_SIZE.height * SHOT_SCALE;
+  const wide = await sharp(image)
+    .resize({ width, height, fit: "cover", position: sharp.strategy.attention })
+    .toBuffer();
+  if (zoom === 1) return sharp(wide).jpeg({ quality: 90 }).toBuffer();
+
+  // The wide crop only chose a horizontal offset. A square attention crop
+  // of it picks the most interesting height too; the tight shot is then
+  // cut around the centre of that square.
+  const { info } = await sharp(wide)
+    .resize({ width, height: width, fit: "cover", position: sharp.strategy.attention })
+    .toBuffer({ resolveWithObject: true });
+  const focusY = Math.abs(info.cropOffsetTop ?? 0) + width / 2;
+  const tightW = Math.round(width / zoom);
+  const tightH = Math.round(height / zoom);
+  const top = Math.min(height - tightH, Math.max(0, Math.round(focusY - tightH / 2)));
+  return sharp(wide)
+    .extract({ left: Math.round((width - tightW) / 2), top, width: tightW, height: tightH })
+    .resize({ width, height })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+};
+
+export const REEL_SHOT_SCALE = SHOT_SCALE;
+
+// Everything the reel edit needs: wide and tight shots per still, the
+// overlays (transparent PNG) and the end card.
+export const renderReelAssets = async (screening: Screening) => {
   const stills = await fetchReelStills(screening);
   if (stills.length === 0) {
     throw new Error("Reel needs at least one backdrop or poster image");
   }
-  const screenImages = await Promise.all(
-    Array.from({ length: REEL_SCREEN_CUTS }, (_, i) =>
-      cropToBox(stills[i % stills.length]!, SCREEN_SIZE)
-    )
-  );
+  const picked = stills.slice(0, 4);
+  const [wide, tight] = await Promise.all([
+    Promise.all(picked.map((s) => toShot(s, 1))),
+    Promise.all(picked.map((s) => toShot(s, TIGHT_ZOOM))),
+  ]);
 
-  const [slateOpen, slateShut, end, ...rest] = await Promise.all([
-    renderElement(<ReelSlate screening={screening} open />, REEL_SIZE),
-    renderElement(<ReelSlate screening={screening} open={false} />, REEL_SIZE),
-    renderElement(<ReelEndCard screening={screening} />, REEL_SIZE),
-    ...screenImages.map((imageUrl, index) =>
-      renderElement(
-        <ReelScreen
-          screening={screening}
-          imageUrl={imageUrl}
-          index={index}
-          total={REEL_SCREEN_CUTS}
-        />,
-        REEL_SIZE
-      )
+  const today = todayInPoland();
+  const { date } = splitScreeningDate(screening.date);
+  const age = Number(today.slice(0, 4)) - screening.movie.productionYear;
+  const hookLines = [
+    `${describeWhen(date, today)}, ${screening.cinema.city.name}`,
+    age >= 40 ? `klasyka sprzed ${age} lat` : "na dużym ekranie",
+  ];
+  const { weekday, dayMonth, time } = describeScreeningDay(screening);
+  const { cinema } = screening;
+
+  const png = (element: Parameters<typeof satori>[0]) =>
+    renderElement(element, REEL_SIZE, "png");
+  const [hookFirst, hookFull, title, when, where, end] = await Promise.all([
+    png(<ReelCaption lines={hookLines.slice(0, 1)} />),
+    png(<ReelCaption lines={hookLines} />),
+    png(<ReelTitle screening={screening} />),
+    png(
+      <ReelInfo
+        eyebrow={weekday}
+        big={dayMonth}
+        small={time ? `godz. ${time}` : undefined}
+      />
     ),
-    ...Array.from({ length: INFO_STEPS }, (_, step) =>
-      renderElement(<ReelInfo screening={screening} step={step} />, REEL_SIZE)
+    png(
+      <ReelInfo
+        eyebrow={cinema.city.name}
+        big={cinema.name}
+        small={
+          cinema.instagramUsername
+            ? `@${cinema.instagramUsername} · ${cinema.street}`
+            : cinema.street
+        }
+      />
     ),
+    renderElement(<ReelEnd screening={screening} />, REEL_SIZE),
   ]);
 
   return {
-    slateOpen: slateOpen!,
-    slateShut: slateShut!,
-    screens: rest.slice(0, REEL_SCREEN_CUTS),
-    info: rest.slice(REEL_SCREEN_CUTS),
-    end: end!,
+    wide,
+    tight,
+    overlays: { hookFirst, hookFull, title, when, where },
+    end,
   };
 };
 

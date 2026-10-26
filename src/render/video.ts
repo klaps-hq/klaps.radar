@@ -2,27 +2,56 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { musicFile, pickMood, sfxFile, type Sfx } from "../audio/library";
+import { detectBeats } from "../audio/beats";
+import { musicFile, pickMood, sfxFile } from "../audio/library";
 import type { Screening } from "../types/types";
-import { renderReelFrames } from "./render";
+import { renderReelAssets } from "./render";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const AUDIO_DIR = fileURLToPath(new URL("../../assets/audio/", import.meta.url));
 const FPS = 30;
 const W = 1080;
 const H = 1920;
-// The music beds are prompted at ~100 bpm; cuts land on whole beats.
-const BEAT_S = 0.6;
-// The slate shudders this many pixels for a few frames when it claps shut.
-const SHAKE_PX = 14;
-const SHAKE_S = 0.14;
+// Punch-in: each cut opens slightly zoomed and snaps to full frame within
+// a few frames, the standard "impact" cut of short-form edits.
+const PUNCH_FROM = 1.12;
+const PUNCH_FRAMES = 5;
+const SHAKE_PX = 18;
+const SHAKE_S = 0.2;
+const FLASH_S = 0.15;
+const MUSIC_GAIN = 0.9;
 
-// "Klaps" reel, 12 s: slate open (2 beats), slate clapped shut (2 beats),
-// four screen cuts (2 beats each), info lines landing on single beats with
-// the last one held, end card. Hard cuts only: the stills never move.
-type Shot = { file: string; seconds: number; shake?: boolean };
+type Overlay = "hookFirst" | "hookFull" | "title" | "when" | "where";
+type Segment = {
+  beats: number; // length in beats
+  shot?: { kind: "wide" | "tight"; still: number };
+  overlay?: Overlay;
+  punch?: boolean;
+  drop?: boolean; // white flash + shake
+  dim?: boolean;
+  end?: boolean;
+};
 
-const MUSIC_GAIN = 0.55;
+// The edit, in beats (16 in total, 7-10 s depending on tempo): a boxed
+// hook on the first frame, the drop, eight fast cuts alternating wide and
+// tight framings with the title landing mid-run, date and venue over
+// dimmed stills, and a short end card that loops back to the hook.
+const EDIT: Segment[] = [
+  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "hookFirst", punch: true },
+  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "hookFull" },
+  { beats: 1, shot: { kind: "tight", still: 0 }, punch: true, drop: true },
+  { beats: 1, shot: { kind: "wide", still: 1 }, punch: true },
+  { beats: 1, shot: { kind: "tight", still: 1 }, punch: true },
+  { beats: 1, shot: { kind: "wide", still: 2 }, punch: true },
+  { beats: 1, shot: { kind: "tight", still: 2 }, overlay: "title", punch: true },
+  { beats: 1, shot: { kind: "wide", still: 3 }, overlay: "title", punch: true },
+  { beats: 1, shot: { kind: "tight", still: 3 }, overlay: "title", punch: true },
+  { beats: 1, shot: { kind: "wide", still: 0 }, overlay: "title", punch: true },
+  { beats: 2, shot: { kind: "wide", still: 1 }, overlay: "when", punch: true, dim: true },
+  { beats: 2, shot: { kind: "tight", still: 2 }, overlay: "where", punch: true, dim: true },
+  { beats: 2, end: true },
+];
+const TOTAL_BEATS = EDIT.reduce((sum, s) => sum + s.beats, 0);
 
 const run = async (args: string[]): Promise<void> => {
   const proc = Bun.spawn([FFMPEG, "-y", "-loglevel", "error", ...args], {
@@ -34,110 +63,127 @@ const run = async (args: string[]): Promise<void> => {
   }
 };
 
+// Longer than this and the edit drags; slow tracks (often detected at half
+// tempo) are cut on half beats instead.
+const MAX_EDIT_S = 11;
+
+// Beat times from the track, extended with its period if the track's grid
+// is shorter than the edit.
+const beatTimes = (beats: number[], period: number, count: number): number[] => {
+  const origin = beats[0] ?? 0;
+  let times = beats.map((b) => b - origin);
+  while (period * (count - 1) > MAX_EDIT_S) {
+    times = times.flatMap((t) => [t, t + period / 2]);
+    period /= 2;
+  }
+  while (times.length < count) times.push((times.at(-1) ?? -period) + period);
+  return times.slice(0, count);
+};
+
 export const renderScreeningReel = async (
   screening: Screening
 ): Promise<Buffer> => {
-  const frames = await renderReelFrames(screening);
-  const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
+  const genreIds = (screening.movie.movies_genres ?? []).map((g) => g.genreId);
+  const mood = pickMood(genreIds, screening.movie.productionYear);
+  const variant = (screening.movie.title.length % 2) as 0 | 1;
+  const music = join(AUDIO_DIR, musicFile(mood, variant));
 
+  const [assets, grid] = await Promise.all([
+    renderReelAssets(screening),
+    detectBeats(music),
+  ]);
+  const times = beatTimes(grid.beats, grid.period, TOTAL_BEATS + 1);
+  const musicStart = grid.beats[0] ?? 0;
+
+  const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
+    const files = new Map<string, string>();
     const write = async (name: string, data: Buffer) => {
       const file = join(dir, name);
       await Bun.write(file, data);
-      return file;
+      files.set(name, file);
+    };
+    await Promise.all([
+      ...assets.wide.map((b, i) => write(`wide-${i}.jpg`, b)),
+      ...assets.tight.map((b, i) => write(`tight-${i}.jpg`, b)),
+      ...Object.entries(assets.overlays).map(([name, b]) => write(`${name}.png`, b)),
+      write("end.jpg", assets.end),
+    ]);
+    const stills = assets.wide.length;
+
+    const inputs: string[] = [];
+    let inputCount = 0;
+    const addInput = (file: string, seconds: number): number => {
+      inputs.push("-loop", "1", "-framerate", String(FPS), "-t", seconds.toFixed(3), "-i", file);
+      return inputCount++;
     };
 
-    const shots: Shot[] = [
-      { file: await write("slate-open.jpg", frames.slateOpen), seconds: BEAT_S * 2 },
-      { file: await write("slate-shut.jpg", frames.slateShut), seconds: BEAT_S * 2, shake: true },
-      ...(await Promise.all(
-        frames.screens.map(async (data, i) => ({
-          file: await write(`screen-${i}.jpg`, data),
-          seconds: BEAT_S * 2,
-        }))
-      )),
-      ...(await Promise.all(
-        frames.info.map(async (data, i) => ({
-          file: await write(`info-${i}.jpg`, data),
-          // The last line holds so the venue can be read.
-          seconds: i === frames.info.length - 1 ? BEAT_S * 3 + 0.2 : BEAT_S,
-        }))
-      )),
-      { file: await write("end.jpg", frames.end), seconds: BEAT_S * 2 + 0.4 },
-    ];
+    const filters: string[] = [];
+    let beat = 0;
+    let dropAt = 0;
+    EDIT.forEach((segment, i) => {
+      const startFrame = Math.round(times[beat]! * FPS);
+      beat += segment.beats;
+      const frames = Math.round(times[beat]! * FPS) - startFrame;
+      const seconds = frames / FPS + 0.1;
+      const exact = `trim=end_frame=${frames},setpts=PTS-STARTPTS`;
 
-    const starts: number[] = [];
-    let total = 0;
-    for (const shot of shots) {
-      starts.push(total);
-      total += shot.seconds;
-    }
-    const firstScreen = 2;
-    const firstInfo = firstScreen + frames.screens.length;
-    const endIndex = shots.length - 1;
+      if (segment.end) {
+        const input = addInput(files.get("end.jpg")!, seconds);
+        filters.push(`[${input}:v]scale=${W}:${H},setsar=1,fps=${FPS},${exact}[v${i}]`);
+        return;
+      }
 
-    // [sound, start in s, gain]
-    const cues: [Sfx, number, number][] = [
-      ["projector", 0, 0.5],
-      ["clap", starts[1]!, 1.0],
-      ["impact", starts[firstScreen]!, 0.7],
-      ...frames.screens
-        .slice(1)
-        .map((_, i): [Sfx, number, number] => ["tick", starts[firstScreen + 1 + i]!, 0.6]),
-      ...frames.info.map((_, i): [Sfx, number, number] => ["tick", starts[firstInfo + i]!, 0.8]),
-      ["click", starts[endIndex]!, 0.7],
-    ];
+      const { kind, still } = segment.shot!;
+      const input = addInput(files.get(`${kind}-${still % stills}.jpg`)!, seconds);
+      const zoom = segment.punch
+        ? `if(lt(on,${PUNCH_FRAMES}),${PUNCH_FROM}-${((PUNCH_FROM - 1) / PUNCH_FRAMES).toFixed(4)}*on,1)`
+        : "1";
+      let chain =
+        `[${input}:v]zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},setsar=1`;
+      if (segment.dim) chain += ",eq=brightness=-0.12:saturation=0.85";
+      if (segment.drop) {
+        dropAt = startFrame / FPS;
+        const jitter = `if(lt(t,${SHAKE_S}),${SHAKE_PX}*sin(t*160)*(1-t/${SHAKE_S}),0)`;
+        chain +=
+          `,fade=t=in:st=0:d=${FLASH_S}:color=white` +
+          `,pad=${W + SHAKE_PX * 2}:${H + SHAKE_PX * 2}:${SHAKE_PX}:${SHAKE_PX}:black` +
+          `,crop=${W}:${H}:x='${SHAKE_PX}+${jitter}':y='${SHAKE_PX}-${jitter}'`;
+      }
+      if (segment.overlay) {
+        const overlay = addInput(files.get(`${segment.overlay}.png`)!, seconds);
+        filters.push(`${chain}[b${i}]`);
+        filters.push(`[b${i}][${overlay}:v]overlay=0:0,${exact}[v${i}]`);
+      } else {
+        filters.push(`${chain},${exact}[v${i}]`);
+      }
+    });
+    filters.push(
+      `${EDIT.map((_, i) => `[v${i}]`).join("")}concat=n=${EDIT.length}:v=1:a=0,format=yuv420p[v]`
+    );
 
-    const genreIds = (screening.movie.movies_genres ?? []).map((g) => g.genreId);
-    const mood = pickMood(genreIds, screening.movie.productionYear);
-    const variant = (screening.movie.title.length % 2) as 0 | 1;
-
-    const inputs = [
-      ...shots.flatMap((s) => [
-        "-loop", "1", "-framerate", String(FPS), "-t", s.seconds.toFixed(2), "-i", s.file,
-      ]),
-      "-i", join(AUDIO_DIR, musicFile(mood, variant)),
-      ...cues.flatMap(([sfx]) => ["-i", join(AUDIO_DIR, sfxFile(sfx))]),
-    ];
-    const musicInput = shots.length;
-
-    const video = [
-      ...shots.map((s, i) => {
-        const base = `[${i}:v]scale=${W}:${H},setsar=1,fps=${FPS}`;
-        if (!s.shake) return `${base}[v${i}]`;
-        // Pad, then crop with a decaying jitter for the first frames.
-        const jitter = `if(lt(t,${SHAKE_S}),${SHAKE_PX}*sin(t*170)*(1-t/${SHAKE_S}),0)`;
-        return (
-          `${base},pad=${W + SHAKE_PX * 2}:${H + SHAKE_PX * 2}:${SHAKE_PX}:${SHAKE_PX}:black,` +
-          `crop=${W}:${H}:x='${SHAKE_PX}+${jitter}':y='${SHAKE_PX}-${jitter}'[v${i}]`
-        );
-      }),
-      `${shots.map((_, i) => `[v${i}]`).join("")}concat=n=${shots.length}:v=1:a=0,` +
-        // Light grain so the flat black reads as film, not a slide deck.
-        `noise=alls=6:allf=t+u,format=yuv420p[v]`,
-    ];
-
-    const audio = [
-      `[${musicInput}:a]atrim=0:${total},afade=t=in:st=0:d=0.3,afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2,volume=${MUSIC_GAIN}[m]`,
-      ...cues.map(([, start, gain], i) => {
-        const ms = Math.round(start * 1000);
-        return `[${musicInput + 1 + i}:a]adelay=${ms}|${ms},volume=${gain}[c${i}]`;
-      }),
-      `[m]${cues.map((_, i) => `[c${i}]`).join("")}amix=inputs=${cues.length + 1}:normalize=0:duration=first,alimiter=limit=0.9,aresample=44100[a]`,
-    ];
+    const total = Math.round(times[TOTAL_BEATS]! * FPS) / FPS;
+    const musicInput = inputCount++;
+    const impactInput = inputCount++;
+    inputs.push("-ss", musicStart.toFixed(3), "-i", music);
+    inputs.push("-i", join(AUDIO_DIR, sfxFile("impact")));
+    const dropMs = Math.round(dropAt * 1000);
+    filters.push(
+      `[${musicInput}:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.35).toFixed(3)}:d=0.35,volume=${MUSIC_GAIN}[m]`,
+      `[${impactInput}:a]adelay=${dropMs}|${dropMs},volume=0.55[hit]`,
+      `[m][hit]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`
+    );
 
     const output = join(dir, "reel.mp4");
     await run([
       ...inputs,
-      "-filter_complex", [...video, ...audio].join(";"),
+      "-filter_complex", filters.join(";"),
       "-map", "[v]", "-map", "[a]",
-      "-c:v", "libx264", "-preset", "medium", "-crf", "21",
-      // Grain is expensive to encode; cap the rate to stay well under the
-      // 15 MB upload limit of the image host.
-      "-maxrate", "5M", "-bufsize", "10M",
+      "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+      "-maxrate", "6M", "-bufsize", "12M",
       "-r", String(FPS), "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k", "-ac", "2",
-      "-t", total.toFixed(2),
+      "-t", total.toFixed(3),
       "-movflags", "+faststart",
       output,
     ]);
