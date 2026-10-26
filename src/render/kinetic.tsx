@@ -28,6 +28,9 @@ const BLOCK_RIGHT = 250;
 
 const MUTED = "rgba(255,255,255,0.7)";
 const FAINT = "rgba(255,255,255,0.6)";
+// Small muted lines can land on a bright part of the poster above the
+// scrim; a soft shadow keeps them legible there.
+const SMALL_SHADOW = "0 2px 12px rgba(0,0,0,0.6)";
 
 export const LINE_FADE_S = 0.5;
 export const LINE_STAGGER_S = 0.07;
@@ -59,7 +62,7 @@ const Logo = ({ size }: { size: number }) => (
 );
 
 const Eyebrow = ({ text }: { text: string }) => (
-  <span style={{ fontSize: 25, textTransform: "uppercase", letterSpacing: "0.3em", color: MUTED }}>
+  <span style={{ fontSize: 25, textTransform: "uppercase", letterSpacing: "0.3em", color: MUTED, textShadow: SMALL_SHADOW }}>
     {text}
   </span>
 );
@@ -104,6 +107,7 @@ const Small = ({ text }: { text: string }) => (
       textTransform: "uppercase",
       letterSpacing: "0.2em",
       color: FAINT,
+      textShadow: SMALL_SHADOW,
     }}
   >
     {text}
@@ -238,6 +242,60 @@ export const cardScene = (
     base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} />,
     lines: [
       <Eyebrow key="e" text={eyebrow} />,
+      <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
+      <Rule key="r" />,
+      <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,
+      <Small key="s" text={cinema.name} />,
+    ],
+  };
+};
+
+// "rok", "lata", "lat": Polish plural of years (12-14 take "lat").
+const yearsWord = (n: number): string => {
+  if (n === 1) return "rok";
+  const last = n % 10;
+  const lastTwo = n % 100;
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "lata" : "lat";
+};
+
+// Anniversary reel. Both scenes share the poster, so the change between
+// them is the text block alone dissolving from the anniversary to the
+// screening.
+export const anniversaryHookScene = (
+  screening: Screening,
+  years: number,
+  premiere: string,
+  imageUrl: string | null,
+  start: number,
+  end: number
+): Scene => ({
+  start,
+  end,
+  textAt: start + TEXT_DELAY_S,
+  base: <CardBase imageUrl={imageUrl} />,
+  lines: [
+    <Eyebrow key="e" text={`Premiera ${formatPolishDate(premiere)}`} />,
+    <Title key="t" text={`${years} ${yearsWord(years)} temu`} size={156} />,
+    <Rule key="r" />,
+    <Big key="b" text={screening.movie.title} />,
+  ],
+});
+
+export const anniversaryCardScene = (
+  screening: Screening,
+  imageUrl: string | null,
+  start: number,
+  end: number
+): Scene => {
+  const { movie, cinema } = screening;
+  const { date, time } = splitScreeningDate(screening.date);
+  return {
+    start,
+    end,
+    textAt: start + TEXT_DELAY_S,
+    base: <CardBase imageUrl={imageUrl} meta={cinema.city.name} />,
+    lines: [
+      <Eyebrow key="e" text="Wraca na duży ekran" />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
       <Rule key="r" />,
       <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,

@@ -7,6 +7,8 @@ import { detectBeats, type BeatGrid } from "../audio/beats";
 import { MUSIC_PROMPTS, musicFile, pickMood, sfxFile, type Mood } from "../audio/library";
 import type { Screening } from "../types/types";
 import {
+  anniversaryCardScene,
+  anniversaryHookScene,
   CARD_SIZE,
   cardScene,
   easeInOutSine,
@@ -44,14 +46,20 @@ const beatsFor = (seconds: number, period: number) => {
   return beats;
 };
 
-// Beat plan for the content (hook + cards) on a track: whole beats per
-// scene, on half beats for slow tracks so it fits before the ending.
-const planBeats = (count: number, grid: BeatGrid) => {
+// A scene of the reel before it is timed: the shortest it may be, and how
+// to build it once its start and end are known.
+export type SceneSpec = {
+  minS: number;
+  make: (start: number, end: number) => Scene;
+};
+
+// Beat plan for the content scenes on a track: whole beats per scene, on
+// half beats for slow tracks so the content fits before the ending.
+const planBeats = (specs: SceneSpec[], grid: BeatGrid) => {
   let period = grid.period;
   const plan = () => {
-    const hookBeats = beatsFor(MIN_HOOK_S, period);
-    const cardBeats = beatsFor(MIN_CARD_S, period);
-    return { period, hookBeats, cardBeats, contentS: (hookBeats + count * cardBeats) * period };
+    const beats = specs.map((spec) => beatsFor(spec.minS, period));
+    return { period, beats, contentS: beats.reduce((sum, n) => sum + n, 0) * period };
   };
   let current = plan();
   while (current.contentS > grid.ending && period > 0.3) {
@@ -62,9 +70,9 @@ const planBeats = (count: number, grid: BeatGrid) => {
 };
 
 // Picks the bed: the film's mood first (both variants), then any other bed
-// whose ending leaves room for the whole line-up, so the end card can land
-// on the final hit. Falls back to the bed with the most room.
-const pickTrack = async (count: number, mood: Mood, preferred: 0 | 1) => {
+// whose ending leaves room for all the scenes, so the end card can land on
+// the final hit. Falls back to the bed with the most room.
+const pickTrack = async (specs: SceneSpec[], mood: Mood, preferred: 0 | 1) => {
   const moods = Object.keys(MUSIC_PROMPTS) as Mood[];
   const order: [Mood, 0 | 1][] = [
     [mood, preferred],
@@ -75,7 +83,7 @@ const pickTrack = async (count: number, mood: Mood, preferred: 0 | 1) => {
   for (const [m, v] of order) {
     const file = join(AUDIO_DIR, musicFile(m, v));
     const grid = await detectBeats(file);
-    const room = grid.ending - planBeats(count, grid).contentS;
+    const room = grid.ending - planBeats(specs, grid).contentS;
     if (room >= 0) return { file, grid };
     if (!best || room > best.room) best = { file, grid, room };
   }
@@ -90,16 +98,11 @@ type Timeline = {
 };
 
 // The timeline is anchored on the music's final hit: the end card starts
-// exactly on it, and the hook and cards are laid out backwards from there
+// exactly on it, and the content scenes are laid out backwards from there
 // in whole beats, so every change of card sits on the beat and the song
 // ends on the end card. The music starts mid-track if needed.
-const buildTimeline = (
-  lineup: Screening[],
-  hookLines: [string, string],
-  posters: (string | null)[],
-  grid: BeatGrid
-): Timeline => {
-  const { period, hookBeats, cardBeats, contentS } = planBeats(lineup.length, grid);
+const buildTimeline = (specs: SceneSpec[], grid: BeatGrid): Timeline => {
+  const { period, beats, contentS } = planBeats(specs, grid);
   // If even the best track is too short, the music starts at 0 and the end
   // card follows the content (no longer exactly on the hit).
   const musicStart = Math.max(0, grid.ending - contentS);
@@ -108,16 +111,10 @@ const buildTimeline = (
 
   const scenes: Scene[] = [];
   let t = 0;
-  const span = (beats: number) => {
+  specs.forEach((spec, i) => {
     const start = t;
-    t += beats * period;
-    return [start, t] as const;
-  };
-  const [hookStart, hookEnd] = span(hookBeats);
-  scenes.push(hookScene(hookLines, posters[0] ?? null, hookStart, hookEnd));
-  lineup.forEach((screening, i) => {
-    const [start, end] = span(cardBeats);
-    scenes.push(cardScene(screening, i, lineup.length, posters[i] ?? null, start, end));
+    t += beats[i]! * period;
+    scenes.push(spec.make(start, t));
   });
   scenes.push(endScene(endAt, endAt + tail));
 
@@ -132,24 +129,16 @@ const blend = (a: Buffer, b: Buffer, k: number): Buffer => {
   return out;
 };
 
-// Line-up reel: the screenings in `lineup` as klaps cards (poster held
-// still, one text block), dissolving into each other on the beats of a
-// music bed matched to `moodSource` (the top-scored screening). Frames are
-// rendered one by one and streamed to ffmpeg, which muxes the music.
-export const renderLineupReel = async (
-  lineup: Screening[],
-  hookLines: [string, string],
-  moodSource: Screening
-): Promise<Buffer> => {
+// Renders a reel of klaps cards (poster held still, one text block)
+// dissolving into each other on the beats of a music bed matched to
+// `moodSource`, ending on the bed's final hit. Frames are rendered one by
+// one and streamed to ffmpeg, which muxes the music.
+const renderReel = async (specs: SceneSpec[], moodSource: Screening): Promise<Buffer> => {
   const genreIds = (moodSource.movie.movies_genres ?? []).map((g) => g.genreId);
   const mood = pickMood(genreIds, moodSource.movie.productionYear);
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
-
-  const [posters, { file: music, grid }] = await Promise.all([
-    Promise.all(lineup.map((s) => fetchReelPosterUrl(s, CARD_SIZE))),
-    pickTrack(lineup.length, mood, variant),
-  ]);
-  const { scenes, musicStart, total, endAt } = buildTimeline(lineup, hookLines, posters, grid);
+  const { file: music, grid } = await pickTrack(specs, mood, variant);
+  const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid);
   const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
 
@@ -224,4 +213,36 @@ export const renderLineupReel = async (
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+};
+
+// Line-up reel: a hook, then one card per screening.
+export const renderLineupReel = async (
+  lineup: Screening[],
+  hookLines: [string, string],
+  moodSource: Screening
+): Promise<Buffer> => {
+  const posters = await Promise.all(lineup.map((s) => fetchReelPosterUrl(s, CARD_SIZE)));
+  const specs: SceneSpec[] = [
+    { minS: MIN_HOOK_S, make: (a, b) => hookScene(hookLines, posters[0] ?? null, a, b) },
+    ...lineup.map((screening, i): SceneSpec => ({
+      minS: MIN_CARD_S,
+      make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b),
+    })),
+  ];
+  return renderReel(specs, moodSource);
+};
+
+// Anniversary reel: the round anniversary of a film's premiere over its
+// poster, then the screening that brings it back to the big screen.
+export const renderAnniversaryReel = async (
+  screening: Screening,
+  years: number,
+  premiere: string // YYYY-MM-DD
+): Promise<Buffer> => {
+  const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
+  const specs: SceneSpec[] = [
+    { minS: MIN_HOOK_S + 0.4, make: (a, b) => anniversaryHookScene(screening, years, premiere, poster, a, b) },
+    { minS: MIN_CARD_S + 0.4, make: (a, b) => anniversaryCardScene(screening, poster, a, b) },
+  ];
+  return renderReel(specs, screening);
 };
