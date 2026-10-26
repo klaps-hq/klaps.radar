@@ -54,7 +54,14 @@ export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
 
 export const MUSIC_LENGTH_MS = 14000;
 
-export type Sfx = "projector" | "whoosh1" | "whoosh2" | "impact" | "click";
+export type Sfx =
+  | "projector"
+  | "whoosh1"
+  | "whoosh2"
+  | "impact"
+  | "click"
+  | "clap"
+  | "tick";
 
 export const SFX_PROMPTS: Record<Sfx, { text: string; seconds: number }> = {
   projector: {
@@ -72,6 +79,14 @@ export const SFX_PROMPTS: Record<Sfx, { text: string; seconds: number }> = {
   impact: {
     text: "deep cinematic trailer hit, boom with short sub bass tail, punchy",
     seconds: 1.5,
+  },
+  clap: {
+    text: "single wooden film clapperboard clap, sharp crisp snap, close microphone, no room reverb",
+    seconds: 0.6,
+  },
+  tick: {
+    text: "single soft mechanical tick, like a film counter or typewriter key, short and dry",
+    seconds: 0.5,
   },
   click: {
     text: "film projector stopping, last frames flicking and a mechanical click",

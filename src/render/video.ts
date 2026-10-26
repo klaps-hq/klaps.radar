@@ -4,55 +4,24 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { musicFile, pickMood, sfxFile, type Sfx } from "../audio/library";
 import type { Screening } from "../types/types";
-import { cropImage, fetchReelImages, renderReelCards } from "./render";
+import { renderReelFrames } from "./render";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const AUDIO_DIR = fileURLToPath(new URL("../../assets/audio/", import.meta.url));
 const FPS = 30;
 const W = 1080;
 const H = 1920;
-// Motion is computed at twice the output size and scaled down, so pans and
-// zooms move in half-pixel steps and stay smooth.
-const SS = 2;
-// Pan shots are cropped this much wider than the frame around their focus,
-// which is the distance the camera travels.
-const PAN_WIDTH = 1.3;
-const ZOOM = 0.1;
-// Scene overlays slide up this far while fading in.
-const SLIDE_PX = 80;
-const REVEAL_S = 0.45;
+// The music beds are prompted at ~100 bpm; cuts land on whole beats.
+const BEAT_S = 0.6;
+// The slate shudders this many pixels for a few frames when it claps shut.
+const SHAKE_PX = 14;
+const SHAKE_S = 0.14;
 
-// Montage, 12 s: intro card, three scenes (each with its own message) and
-// an end card, cut on whooshes over a genre-matched music bed.
-const SEGMENTS = {
-  intro: 0.9,
-  title: 3.5,
-  date: 3.2,
-  place: 2.8,
-  end: 1.6,
-};
-// Scene overlays appear this long after their cut.
-const REVEAL_AT = { title: 0.3, date: 0.2, place: 0.2 };
+// "Klaps" reel, 12 s: slate open (2 beats), slate clapped shut (2 beats),
+// four screen cuts (2 beats each), info lines landing on single beats with
+// the last one held, end card. Hard cuts only: the stills never move.
+type Shot = { file: string; seconds: number; shake?: boolean };
 
-const at = (segment: keyof typeof SEGMENTS): number => {
-  let t = 0;
-  for (const [name, length] of Object.entries(SEGMENTS)) {
-    if (name === segment) return t;
-    t += length;
-  }
-  return t;
-};
-const TOTAL_S = Object.values(SEGMENTS).reduce((a, b) => a + b, 0);
-
-// [sound, start time in s, gain]
-const SOUND_CUES: [Sfx, number, number][] = [
-  ["projector", 0, 0.7],
-  ["whoosh1", at("title") - 0.15, 0.8],
-  ["impact", at("title") + REVEAL_AT.title - 0.05, 0.9],
-  ["whoosh2", at("date") - 0.15, 0.7],
-  ["whoosh1", at("place") - 0.15, 0.7],
-  ["click", at("end") - 0.05, 0.8],
-];
 const MUSIC_GAIN = 0.55;
 
 const run = async (args: string[]): Promise<void> => {
@@ -65,102 +34,99 @@ const run = async (args: string[]): Promise<void> => {
   }
 };
 
-const still = (path: string, seconds: number): string[] => [
-  "-loop", "1", "-framerate", String(FPS), "-t", seconds.toFixed(2), "-i", path,
-];
-
-// Slide-up + fade-in of a scene overlay starting `start` s into its shot.
-const reveal = (shot: string, overlay: string, start: number, out: string) =>
-  `[${overlay}]format=rgba,fade=t=in:st=${start}:d=${REVEAL_S}:alpha=1[${overlay}f];` +
-  `[${shot}][${overlay}f]overlay=x=0:y='if(lt(t,${start}),${SLIDE_PX},if(lt(t,${start + REVEAL_S}),${SLIDE_PX}*(1-(t-${start})/${REVEAL_S}),0))'[${out}]`;
-
-// Film grain and a soft vignette, so stills read as footage.
-const FILM_LOOK = "noise=alls=7:allf=t+u,vignette=PI/5";
-
 export const renderScreeningReel = async (
   screening: Screening
 ): Promise<Buffer> => {
-  const images = await fetchReelImages(screening);
-  if (images.length === 0) {
-    throw new Error("Reel needs at least one poster or backdrop image");
-  }
-  // Fewer than three stills: reuse them, the shots still move differently.
-  const pick = (i: number) => images[i % images.length]!;
-
+  const frames = await renderReelFrames(screening);
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
+
   try {
-    const cards = await renderReelCards(screening);
-    const files = {
-      intro: join(dir, "intro.jpg"),
-      shot1: join(dir, "shot1.jpg"),
-      shot2: join(dir, "shot2.jpg"),
-      shot3: join(dir, "shot3.jpg"),
-      end: join(dir, "end.jpg"),
-      title: join(dir, "title.png"),
-      date: join(dir, "date.png"),
-      place: join(dir, "place.png"),
-      output: join(dir, "reel.mp4"),
+    const write = async (name: string, data: Buffer) => {
+      const file = join(dir, name);
+      await Bun.write(file, data);
+      return file;
     };
-    const zoomBox = { width: W * SS, height: H * SS };
-    const panBox = { width: Math.round(W * SS * PAN_WIDTH), height: H * SS };
-    await Promise.all([
-      Bun.write(files.intro, cards.intro),
-      Bun.write(files.end, cards.end),
-      Bun.write(files.title, cards.title),
-      Bun.write(files.date, cards.date),
-      Bun.write(files.place, cards.place),
-      cropImage(pick(0), zoomBox).then((b) => Bun.write(files.shot1, b)),
-      cropImage(pick(1), panBox).then((b) => Bun.write(files.shot2, b)),
-      cropImage(pick(2), panBox).then((b) => Bun.write(files.shot3, b)),
-    ]);
+
+    const shots: Shot[] = [
+      { file: await write("slate-open.jpg", frames.slateOpen), seconds: BEAT_S * 2 },
+      { file: await write("slate-shut.jpg", frames.slateShut), seconds: BEAT_S * 2, shake: true },
+      ...(await Promise.all(
+        frames.screens.map(async (data, i) => ({
+          file: await write(`screen-${i}.jpg`, data),
+          seconds: BEAT_S * 2,
+        }))
+      )),
+      ...(await Promise.all(
+        frames.info.map(async (data, i) => ({
+          file: await write(`info-${i}.jpg`, data),
+          // The last line holds so the venue can be read.
+          seconds: i === frames.info.length - 1 ? BEAT_S * 3 + 0.2 : BEAT_S,
+        }))
+      )),
+      { file: await write("end.jpg", frames.end), seconds: BEAT_S * 2 + 0.4 },
+    ];
+
+    const starts: number[] = [];
+    let total = 0;
+    for (const shot of shots) {
+      starts.push(total);
+      total += shot.seconds;
+    }
+    const firstScreen = 2;
+    const firstInfo = firstScreen + frames.screens.length;
+    const endIndex = shots.length - 1;
+
+    // [sound, start in s, gain]
+    const cues: [Sfx, number, number][] = [
+      ["projector", 0, 0.5],
+      ["clap", starts[1]!, 1.0],
+      ["impact", starts[firstScreen]!, 0.7],
+      ...frames.screens
+        .slice(1)
+        .map((_, i): [Sfx, number, number] => ["tick", starts[firstScreen + 1 + i]!, 0.6]),
+      ...frames.info.map((_, i): [Sfx, number, number] => ["tick", starts[firstInfo + i]!, 0.8]),
+      ["click", starts[endIndex]!, 0.7],
+    ];
 
     const genreIds = (screening.movie.movies_genres ?? []).map((g) => g.genreId);
     const mood = pickMood(genreIds, screening.movie.productionYear);
     const variant = (screening.movie.title.length % 2) as 0 | 1;
-    const music = join(AUDIO_DIR, musicFile(mood, variant));
 
     const inputs = [
-      ...still(files.intro, SEGMENTS.intro), // 0
-      ...still(files.shot1, SEGMENTS.title), // 1
-      ...still(files.shot2, SEGMENTS.date), // 2
-      ...still(files.shot3, SEGMENTS.place), // 3
-      ...still(files.end, SEGMENTS.end), // 4
-      ...still(files.title, SEGMENTS.title), // 5
-      ...still(files.date, SEGMENTS.date), // 6
-      ...still(files.place, SEGMENTS.place), // 7
-      "-i", music, // 8
-      ...SOUND_CUES.flatMap(([sfx]) => ["-i", join(AUDIO_DIR, sfxFile(sfx))]), // 9..
+      ...shots.flatMap((s) => [
+        "-loop", "1", "-framerate", String(FPS), "-t", s.seconds.toFixed(2), "-i", s.file,
+      ]),
+      "-i", join(AUDIO_DIR, musicFile(mood, variant)),
+      ...cues.flatMap(([sfx]) => ["-i", join(AUDIO_DIR, sfxFile(sfx))]),
     ];
+    const musicInput = shots.length;
 
-    const zoomFrames = Math.round(SEGMENTS.title * FPS);
-    const panW = W * SS;
     const video = [
-      `[0:v]scale=${W}:${H},setsar=1,fps=${FPS},format=yuv420p[v0]`,
-      // Push-in on the first shot (key art or best still).
-      `[1:v]zoompan=z='1+${ZOOM}*on/${zoomFrames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${W}x${H}:fps=${FPS},${FILM_LOOK},setsar=1[s1]`,
-      // Pans in opposite directions so consecutive shots do not feel repeated.
-      `[2:v]crop=${panW}:${H * SS}:x='(iw-${panW})*t/${SEGMENTS.date}':y=0,scale=${W}:${H}:flags=lanczos,${FILM_LOOK},setsar=1[s2]`,
-      `[3:v]crop=${panW}:${H * SS}:x='(iw-${panW})*(1-t/${SEGMENTS.place})':y=0,scale=${W}:${H}:flags=lanczos,${FILM_LOOK},setsar=1[s3]`,
-      `[5:v]copy[o1]`,
-      `[6:v]copy[o2]`,
-      `[7:v]copy[o3]`,
-      reveal("s1", "o1", REVEAL_AT.title, "v1"),
-      reveal("s2", "o2", REVEAL_AT.date, "v2"),
-      reveal("s3", "o3", REVEAL_AT.place, "v3"),
-      `[4:v]scale=${W}:${H},setsar=1,fps=${FPS},fade=t=in:st=0:d=0.25[v4]`,
-      `[v0][v1][v2][v3][v4]concat=n=5:v=1:a=0,format=yuv420p[v]`,
-    ];
-
-    const cueLabels = SOUND_CUES.map((_, i) => `c${i}`);
-    const audio = [
-      `[8:a]atrim=0:${TOTAL_S},afade=t=in:st=0:d=0.4,afade=t=out:st=${TOTAL_S - 1.2}:d=1.2,volume=${MUSIC_GAIN}[m]`,
-      ...SOUND_CUES.map(([, start, gain], i) => {
-        const ms = Math.max(0, Math.round(start * 1000));
-        return `[${9 + i}:a]adelay=${ms}|${ms},volume=${gain}[${cueLabels[i]}]`;
+      ...shots.map((s, i) => {
+        const base = `[${i}:v]scale=${W}:${H},setsar=1,fps=${FPS}`;
+        if (!s.shake) return `${base}[v${i}]`;
+        // Pad, then crop with a decaying jitter for the first frames.
+        const jitter = `if(lt(t,${SHAKE_S}),${SHAKE_PX}*sin(t*170)*(1-t/${SHAKE_S}),0)`;
+        return (
+          `${base},pad=${W + SHAKE_PX * 2}:${H + SHAKE_PX * 2}:${SHAKE_PX}:${SHAKE_PX}:black,` +
+          `crop=${W}:${H}:x='${SHAKE_PX}+${jitter}':y='${SHAKE_PX}-${jitter}'[v${i}]`
+        );
       }),
-      `[m]${cueLabels.map((l) => `[${l}]`).join("")}amix=inputs=${SOUND_CUES.length + 1}:normalize=0:duration=first,alimiter=limit=0.9,aresample=44100[a]`,
+      `${shots.map((_, i) => `[v${i}]`).join("")}concat=n=${shots.length}:v=1:a=0,` +
+        // Light grain so the flat black reads as film, not a slide deck.
+        `noise=alls=6:allf=t+u,format=yuv420p[v]`,
     ];
 
+    const audio = [
+      `[${musicInput}:a]atrim=0:${total},afade=t=in:st=0:d=0.3,afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2,volume=${MUSIC_GAIN}[m]`,
+      ...cues.map(([, start, gain], i) => {
+        const ms = Math.round(start * 1000);
+        return `[${musicInput + 1 + i}:a]adelay=${ms}|${ms},volume=${gain}[c${i}]`;
+      }),
+      `[m]${cues.map((_, i) => `[c${i}]`).join("")}amix=inputs=${cues.length + 1}:normalize=0:duration=first,alimiter=limit=0.9,aresample=44100[a]`,
+    ];
+
+    const output = join(dir, "reel.mp4");
     await run([
       ...inputs,
       "-filter_complex", [...video, ...audio].join(";"),
@@ -168,15 +134,15 @@ export const renderScreeningReel = async (
       "-c:v", "libx264", "-preset", "medium", "-crf", "21",
       // Grain is expensive to encode; cap the rate to stay well under the
       // 15 MB upload limit of the image host.
-      "-maxrate", "5M", "-bufsize", "10M", "-r", String(FPS),
-      "-pix_fmt", "yuv420p",
+      "-maxrate", "5M", "-bufsize", "10M",
+      "-r", String(FPS), "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k", "-ac", "2",
-      "-t", TOTAL_S.toFixed(2),
+      "-t", total.toFixed(2),
       "-movflags", "+faststart",
-      files.output,
+      output,
     ]);
 
-    return Buffer.from(await Bun.file(files.output).arrayBuffer());
+    return Buffer.from(await Bun.file(output).arrayBuffer());
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

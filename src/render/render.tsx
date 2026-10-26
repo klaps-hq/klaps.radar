@@ -9,12 +9,13 @@ import {
   type CarouselEntry,
 } from "./carousel";
 import {
-  ReelDateScene,
+  INFO_STEPS,
   ReelEndCard,
-  ReelIntro,
-  ReelPlaceScene,
-  ReelTitleScene,
+  ReelInfo,
+  ReelScreen,
+  ReelSlate,
   REEL_SIZE,
+  SCREEN_SIZE,
 } from "./reel";
 import {
   getCardSize,
@@ -112,50 +113,6 @@ const fetchScreeningImage = async (
   return image ? cropToBox(image, box) : null;
 };
 
-// Stills for the reel montage, most portrait-friendly first: textless key
-// art (if any), then backdrops. Raw bytes; the video pipeline crops them.
-export const fetchReelImages = async (
-  screening: Screening
-): Promise<Buffer[]> => {
-  const art = await getMovieArt(screening.movie);
-  const paths = [
-    ...(art.textlessPoster ? [art.textlessPoster] : []),
-    ...art.backdrops,
-  ];
-  if (paths.length === 0 && screening.movie.posterUrl) {
-    paths.push(screening.movie.posterUrl);
-  }
-  const images = await Promise.all(
-    paths.map((p) => fetchImageBuffer(resolveImageUrl(p)))
-  );
-  return images.filter((i): i is Buffer => i !== null);
-};
-
-// Crops an image to `box` around its attention focus, as raw bytes.
-export const cropImage = (image: Buffer, box: Box): Promise<Buffer> =>
-  sharp(image)
-    .resize({
-      width: box.width,
-      height: box.height,
-      fit: "cover",
-      position: sharp.strategy.attention,
-    })
-    .jpeg({ quality: 92 })
-    .toBuffer();
-
-// Intro/end cards (opaque JPEG) and the three scene overlays (transparent
-// PNG) of the reel montage.
-export const renderReelCards = async (screening: Screening) => {
-  const [intro, title, date, place, end] = await Promise.all([
-    renderElement(<ReelIntro screening={screening} />, REEL_SIZE),
-    renderElement(<ReelTitleScene screening={screening} />, REEL_SIZE, "png"),
-    renderElement(<ReelDateScene screening={screening} />, REEL_SIZE, "png"),
-    renderElement(<ReelPlaceScene screening={screening} />, REEL_SIZE, "png"),
-    renderElement(<ReelEndCard screening={screening} />, REEL_SIZE),
-  ]);
-  return { intro, title, date, place, end };
-};
-
 export const renderScreeningImage = async (
   variant: Variant,
   screening: Screening
@@ -166,6 +123,65 @@ export const renderScreeningImage = async (
     <ScreeningImage screening={screening} imageUrl={imageUrl} variant={variant} />,
     LAYOUTS[variant]
   );
+};
+
+// Stills for the reel's cinema screen: backdrops first (already 16:9),
+// key art only as a last resort. Raw bytes.
+const fetchReelStills = async (screening: Screening): Promise<Buffer[]> => {
+  const art = await getMovieArt(screening.movie);
+  const paths = art.backdrops.length
+    ? art.backdrops
+    : [art.textlessPoster ?? screening.movie.posterUrl].filter(
+        (p): p is string => Boolean(p)
+      );
+  const images = await Promise.all(
+    paths.map((p) => fetchImageBuffer(resolveImageUrl(p)))
+  );
+  return images.filter((i): i is Buffer => i !== null);
+};
+
+export const REEL_SCREEN_CUTS = 4;
+
+// Every frame of the reel as a JPEG, in order: slate open and shut, the
+// screen cuts, the info lines landing, and the end card.
+export const renderReelFrames = async (screening: Screening) => {
+  const stills = await fetchReelStills(screening);
+  if (stills.length === 0) {
+    throw new Error("Reel needs at least one backdrop or poster image");
+  }
+  const screenImages = await Promise.all(
+    Array.from({ length: REEL_SCREEN_CUTS }, (_, i) =>
+      cropToBox(stills[i % stills.length]!, SCREEN_SIZE)
+    )
+  );
+
+  const [slateOpen, slateShut, end, ...rest] = await Promise.all([
+    renderElement(<ReelSlate screening={screening} open />, REEL_SIZE),
+    renderElement(<ReelSlate screening={screening} open={false} />, REEL_SIZE),
+    renderElement(<ReelEndCard screening={screening} />, REEL_SIZE),
+    ...screenImages.map((imageUrl, index) =>
+      renderElement(
+        <ReelScreen
+          screening={screening}
+          imageUrl={imageUrl}
+          index={index}
+          total={REEL_SCREEN_CUTS}
+        />,
+        REEL_SIZE
+      )
+    ),
+    ...Array.from({ length: INFO_STEPS }, (_, step) =>
+      renderElement(<ReelInfo screening={screening} step={step} />, REEL_SIZE)
+    ),
+  ]);
+
+  return {
+    slateOpen: slateOpen!,
+    slateShut: slateShut!,
+    screens: rest.slice(0, REEL_SCREEN_CUTS),
+    info: rest.slice(REEL_SCREEN_CUTS),
+    end: end!,
+  };
 };
 
 // Weekly carousel: cover with the line-up, one post-style slide per
