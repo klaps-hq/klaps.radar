@@ -101,7 +101,11 @@ type Timeline = {
 // exactly on it, and the content scenes are laid out backwards from there
 // in whole beats, so every change of card sits on the beat and the song
 // ends on the end card. The music starts mid-track if needed.
-const buildTimeline = (specs: SceneSpec[], grid: BeatGrid): Timeline => {
+const buildTimeline = (
+  specs: SceneSpec[],
+  grid: BeatGrid,
+  endImage: string | null
+): Timeline => {
   const { period, beats, contentS } = planBeats(specs, grid);
   // If even the best track is too short, the music starts at 0 and the end
   // card follows the content (no longer exactly on the hit).
@@ -116,7 +120,7 @@ const buildTimeline = (specs: SceneSpec[], grid: BeatGrid): Timeline => {
     t += beats[i]! * period;
     scenes.push(spec.make(start, t));
   });
-  scenes.push(endScene(endAt, endAt + tail));
+  scenes.push(endScene(endAt, endAt + tail, endImage));
 
   return { scenes, musicStart, total: endAt + tail, endAt };
 };
@@ -133,12 +137,16 @@ const blend = (a: Buffer, b: Buffer, k: number): Buffer => {
 // dissolving into each other on the beats of a music bed matched to
 // `moodSource`, ending on the bed's final hit. Frames are rendered one by
 // one and streamed to ffmpeg, which muxes the music.
-const renderReel = async (specs: SceneSpec[], moodSource: Screening): Promise<Buffer> => {
+const renderReel = async (
+  specs: SceneSpec[],
+  moodSource: Screening,
+  endImage: string | null
+): Promise<Buffer> => {
   const genreIds = (moodSource.movie.movies_genres ?? []).map((g) => g.genreId);
   const mood = pickMood(genreIds, moodSource.movie.productionYear);
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
   const { file: music, grid } = await pickTrack(specs, mood, variant);
-  const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid);
+  const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid, endImage);
   const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
 
@@ -229,7 +237,7 @@ export const renderLineupReel = async (
       make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b),
     })),
   ];
-  return renderReel(specs, moodSource);
+  return renderReel(specs, moodSource, posters.at(-1) ?? null);
 };
 
 // Anniversary reel: the round anniversary of a film's premiere over its
@@ -244,5 +252,5 @@ export const renderAnniversaryReel = async (
     { minS: MIN_HOOK_S + 0.4, make: (a, b) => anniversaryHookScene(screening, years, premiere, poster, a, b) },
     { minS: MIN_CARD_S + 0.4, make: (a, b) => anniversaryCardScene(screening, poster, a, b) },
   ];
-  return renderReel(specs, screening);
+  return renderReel(specs, screening, poster);
 };

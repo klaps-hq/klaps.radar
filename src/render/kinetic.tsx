@@ -128,10 +128,12 @@ const CardBase = ({
   imageUrl,
   meta,
   dim = 0,
+  header = true,
 }: {
   imageUrl: string | null;
   meta?: string; // header right: counter and city
   dim?: number;
+  header?: boolean;
 }) => (
   <div
     style={{
@@ -180,6 +182,7 @@ const CardBase = ({
         />
       )}
     </div>
+    {header && (
     <div
       style={{
         position: "absolute",
@@ -198,6 +201,7 @@ const CardBase = ({
         </span>
       )}
     </div>
+    )}
   </div>
 );
 
@@ -304,18 +308,36 @@ export const anniversaryCardScene = (
   };
 };
 
-export const endScene = (start: number, end: number): Scene => ({
+// End card: the last poster stays behind it, darkened, so the reel does
+// not end on an empty frame; the klaps mark is large, with the address
+// and where to find it.
+export const endScene = (start: number, end: number, imageUrl: string | null = null): Scene => ({
   start,
   end,
   textAt: start + TEXT_DELAY_S,
-  base: <CardBase imageUrl={null} />,
+  base: <CardBase imageUrl={imageUrl} dim={0.55} header={false} />,
   lines: [
-    <Eyebrow key="e" text="Wszystkie seanse" />,
-    <Title key="t" text="klaps.space" size={104} />,
+    <Logo key="l" size={96} />,
+    <Small key="e" text="Repertuar kin studyjnych" />,
     <Rule key="r" />,
+    <Url key="u" />,
     <Small key="s" text="Link w bio" />,
   ],
 });
+
+const Url = () => (
+  <span
+    style={{
+      marginTop: 24,
+      fontFamily: "Anton",
+      fontSize: 104,
+      lineHeight: DISPLAY_LINE_HEIGHT,
+      letterSpacing: "0.01em",
+    }}
+  >
+    klaps.space
+  </span>
+);
 
 // --- Rendering ---------------------------------------------------------------
 
