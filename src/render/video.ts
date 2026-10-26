@@ -257,15 +257,14 @@ export const renderAnniversaryReel = async (
 };
 
 // Single-film reel for a series ("Klasyka tygodnia", "Seans na niedzielę"):
-// the film over its poster, then where and when it plays.
+// one card over the poster with the film, when and where, then the end card.
 export const renderSpotlightReel = async (
   screening: Screening,
   series: string
 ): Promise<Buffer> => {
   const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
   const specs: SceneSpec[] = [
-    { minS: MIN_HOOK_S + 0.4, make: (a, b) => spotlightHookScene(screening, series, poster, a, b) },
-    { minS: MIN_CARD_S + 0.4, make: (a, b) => screeningCardScene(screening, "Na dużym ekranie", poster, a, b) },
+    { minS: MIN_HOOK_S + MIN_CARD_S, make: (a, b) => spotlightHookScene(screening, series, poster, a, b) },
   ];
   return renderReel(specs, screening, poster);
 };

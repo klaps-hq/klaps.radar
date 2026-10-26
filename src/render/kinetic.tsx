@@ -254,8 +254,9 @@ export const cardScene = (
   };
 };
 
-// Single-film reel hook ("Klasyka tygodnia", "Seans na niedzielę"): the
-// series, the title, year and running time.
+// Single-film reel ("Klasyka tygodnia", "Seans na niedzielę"): one card
+// with everything, since a second card over the same poster added nothing:
+// the series, the title, when, where, and year and running time.
 
 export const spotlightHookScene = (
   screening: Screening,
@@ -264,18 +265,21 @@ export const spotlightHookScene = (
   start: number,
   end: number
 ): Scene => {
-  const { movie } = screening;
+  const { movie, cinema } = screening;
+  const { date, time } = splitScreeningDate(screening.date);
   const facts = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
   return {
     start,
     end,
     textAt: start + TEXT_DELAY_S,
-    base: <CardBase imageUrl={imageUrl} />,
+    base: <CardBase imageUrl={imageUrl} meta={cinema.city.name} />,
     lines: [
       <Eyebrow key="e" text={series} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
       <Rule key="r" />,
-      <Big key="b" text={facts} />,
+      <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,
+      <Small key="s" text={cinema.name} />,
+      <Small key="f" text={facts} />,
     ],
   };
 };
