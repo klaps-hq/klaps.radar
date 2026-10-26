@@ -89,6 +89,63 @@ export type PublishImageOptions = {
   imageUrl: string;
   caption?: string;
   story?: boolean;
+  // Feed posts only. Usernames tagged on the image (no consent needed).
+  userTags?: string[];
+  // Feed posts only. Up to 3 usernames invited as collaborators.
+  collaborators?: string[];
+  // Feed posts only. Facebook Page ID of a place.
+  locationId?: string;
+};
+
+const buildEnrichmentParams = (
+  options: PublishImageOptions
+): Record<string, string> => ({
+  ...(options.userTags?.length
+    ? {
+        user_tags: JSON.stringify(
+          options.userTags.map((username) => ({ username, x: 0.5, y: 0.5 }))
+        ),
+      }
+    : {}),
+  ...(options.collaborators?.length
+    ? { collaborators: JSON.stringify(options.collaborators.slice(0, 3)) }
+    : {}),
+  ...(options.locationId ? { location_id: options.locationId } : {}),
+});
+
+// Tags, collaborators and location come from hand-maintained cinema data,
+// so a stale username or place ID must not cost the whole post: on failure
+// the container is created again without them.
+const createImageContainer = async (
+  options: PublishImageOptions
+): Promise<string> => {
+  const { instagramUserId } = resolveInstagramEnv();
+  const base: Record<string, string> = {
+    image_url: options.imageUrl,
+    ...(options.story
+      ? { media_type: "STORIES" }
+      : options.caption
+        ? { caption: options.caption }
+        : {}),
+  };
+  const enrichment = options.story ? {} : buildEnrichmentParams(options);
+
+  if (Object.keys(enrichment).length === 0) {
+    return String((await graphPost(`${instagramUserId}/media`, base)).id);
+  }
+
+  try {
+    const container = await graphPost(`${instagramUserId}/media`, {
+      ...base,
+      ...enrichment,
+    });
+    return String(container.id);
+  } catch (err) {
+    console.warn(
+      `Retrying without tags/location (${Object.keys(enrichment).join(", ")}): ${(err as Error).message}`
+    );
+    return String((await graphPost(`${instagramUserId}/media`, base)).id);
+  }
 };
 
 // Two-step Content Publishing flow: create a media container, wait until
@@ -98,16 +155,7 @@ export const publishInstagramImage = async (
 ): Promise<string> => {
   const { instagramUserId } = resolveInstagramEnv();
 
-  const container = await graphPost(`${instagramUserId}/media`, {
-    image_url: options.imageUrl,
-    ...(options.story
-      ? { media_type: "STORIES" }
-      : options.caption
-        ? { caption: options.caption }
-        : {}),
-  });
-
-  const containerId = String(container.id);
+  const containerId = await createImageContainer(options);
 
   for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt += 1) {
     const status = await getContainerStatus(containerId);

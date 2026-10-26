@@ -14,6 +14,10 @@ type ScreeningCinema = {
   name: string;
   street: string;
   city: ScreeningCity;
+  // Optional: absent until api.klaps.space ships the cinema social columns.
+  instagramUsername?: string | null;
+  instagramCollab?: boolean;
+  facebookPlaceId?: string | null;
 };
 
 type ScreeningMovie = {
