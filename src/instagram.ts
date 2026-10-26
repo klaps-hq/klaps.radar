@@ -85,62 +85,56 @@ export const refreshInstagramToken = async (): Promise<void> => {
   console.log(`Instagram token refreshed (valid ~${validDays} days)`);
 };
 
-export type PublishImageOptions = {
-  imageUrl: string;
-  caption?: string;
-  story?: boolean;
-  // Feed posts only. Usernames tagged on the image (no consent needed).
+// Feed-only extras. They come from hand-maintained cinema data, so they
+// are applied best-effort (see createContainer).
+export type FeedEnrichment = {
+  // Usernames tagged on the media (no consent needed).
   userTags?: string[];
-  // Feed posts only. Up to 3 usernames invited as collaborators.
+  // Up to 3 usernames invited as collaborators.
   collaborators?: string[];
-  // Feed posts only. Facebook Page ID of a place.
+  // Facebook Page ID of a place.
   locationId?: string;
 };
 
+export type PublishImageOptions = FeedEnrichment & {
+  imageUrl: string;
+  caption?: string;
+  story?: boolean;
+};
+
 const buildEnrichmentParams = (
-  options: PublishImageOptions
+  enrichment: FeedEnrichment,
+  // Image tags need a position on the picture; video tags must not have one.
+  positionedTags: boolean
 ): Record<string, string> => ({
-  ...(options.userTags?.length
+  ...(enrichment.userTags?.length
     ? {
         user_tags: JSON.stringify(
-          options.userTags.map((username) => ({ username, x: 0.5, y: 0.5 }))
+          enrichment.userTags.map((username) =>
+            positionedTags ? { username, x: 0.5, y: 0.5 } : { username }
+          )
         ),
       }
     : {}),
-  ...(options.collaborators?.length
-    ? { collaborators: JSON.stringify(options.collaborators.slice(0, 3)) }
+  ...(enrichment.collaborators?.length
+    ? { collaborators: JSON.stringify(enrichment.collaborators.slice(0, 3)) }
     : {}),
-  ...(options.locationId ? { location_id: options.locationId } : {}),
+  ...(enrichment.locationId ? { location_id: enrichment.locationId } : {}),
 });
 
-// Tags, collaborators and location come from hand-maintained cinema data,
-// so a stale username or place ID must not cost the whole post: on failure
-// the container is created again without them.
-const createImageContainer = async (
-  options: PublishImageOptions
+// A stale username or place ID must not cost the whole post: on failure the
+// container is created again with less. Location is the least certain field,
+// so it is dropped first and the tags get a second chance on their own.
+const createContainer = async (
+  base: Record<string, string>,
+  enrichment: Record<string, string> = {}
 ): Promise<string> => {
   const { instagramUserId } = resolveInstagramEnv();
-  const base: Record<string, string> = {
-    image_url: options.imageUrl,
-    ...(options.story
-      ? { media_type: "STORIES" }
-      : options.caption
-        ? { caption: options.caption }
-        : {}),
-  };
-  const enrichment = options.story ? {} : buildEnrichmentParams(options);
-
-  if (Object.keys(enrichment).length === 0) {
-    return String((await graphPost(`${instagramUserId}/media`, base)).id);
-  }
-
-  // Location is the least certain field, so it is dropped first and the
-  // tags get a second chance on their own.
   const { location_id: _location, ...tagsOnly } = enrichment;
   const attempts = [
     enrichment,
     ...(enrichment.location_id && Object.keys(tagsOnly).length ? [tagsOnly] : []),
-    {},
+    ...(Object.keys(enrichment).length ? [{}] : []),
   ];
 
   for (const [index, extra] of attempts.entries()) {
@@ -161,27 +155,102 @@ const createImageContainer = async (
   throw new Error("unreachable");
 };
 
+// Images are ready within seconds; video is transcoded by Instagram and
+// commonly takes a minute or more.
+const waitForContainer = async (
+  containerId: string,
+  { attempts, delayMs }: { attempts: number; delayMs: number } = {
+    attempts: CONTAINER_POLL_ATTEMPTS,
+    delayMs: CONTAINER_POLL_DELAY_MS,
+  }
+): Promise<void> => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const status = await getContainerStatus(containerId);
+    if (status === "FINISHED") return;
+    if (status === "ERROR") {
+      throw new Error(`Instagram could not process media container ${containerId}`);
+    }
+    await sleep(delayMs);
+  }
+
+  throw new Error(`Media container ${containerId} not ready in time`);
+};
+
+const publishContainer = async (containerId: string): Promise<string> => {
+  const { instagramUserId } = resolveInstagramEnv();
+  const published = await graphPost(`${instagramUserId}/media_publish`, {
+    creation_id: containerId,
+  });
+  return String(published.id);
+};
+
 // Two-step Content Publishing flow: create a media container, wait until
 // Instagram finishes ingesting the image, then publish it.
 export const publishInstagramImage = async (
   options: PublishImageOptions
 ): Promise<string> => {
-  const { instagramUserId } = resolveInstagramEnv();
+  const containerId = await createContainer(
+    {
+      image_url: options.imageUrl,
+      ...(options.story
+        ? { media_type: "STORIES" }
+        : options.caption
+          ? { caption: options.caption }
+          : {}),
+    },
+    options.story ? {} : buildEnrichmentParams(options, true)
+  );
 
-  const containerId = await createImageContainer(options);
+  await waitForContainer(containerId);
+  return publishContainer(containerId);
+};
 
-  for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt += 1) {
-    const status = await getContainerStatus(containerId);
-    if (status === "FINISHED") break;
-    if (status === "ERROR") {
-      throw new Error("Instagram could not process the uploaded image");
-    }
-    await sleep(CONTAINER_POLL_DELAY_MS);
+// Reels also appear in the profile grid (share_to_feed), so they replace
+// an image post on the days they run instead of adding to it.
+export const publishInstagramReel = async (
+  options: FeedEnrichment & { videoUrl: string; caption: string }
+): Promise<string> => {
+  const containerId = await createContainer(
+    {
+      media_type: "REELS",
+      video_url: options.videoUrl,
+      caption: options.caption,
+      share_to_feed: "true",
+    },
+    buildEnrichmentParams(options, false)
+  );
+
+  await waitForContainer(containerId, { attempts: 60, delayMs: 5000 });
+  return publishContainer(containerId);
+};
+
+// Carousel: one item container per slide, then a parent container with
+// the caption. Each cinema is tagged on its own slide; collaborators (up to
+// 3) go on the parent. Carousels take no location.
+export const publishInstagramCarousel = async (options: {
+  slides: { imageUrl: string; userTags?: string[] }[];
+  caption: string;
+  collaborators?: string[];
+}): Promise<string> => {
+  const childIds: string[] = [];
+  for (const slide of options.slides) {
+    const childId = await createContainer(
+      { image_url: slide.imageUrl, is_carousel_item: "true" },
+      buildEnrichmentParams({ userTags: slide.userTags }, true)
+    );
+    await waitForContainer(childId);
+    childIds.push(childId);
   }
 
-  const published = await graphPost(`${instagramUserId}/media_publish`, {
-    creation_id: containerId,
-  });
+  const containerId = await createContainer(
+    {
+      media_type: "CAROUSEL",
+      children: childIds.join(","),
+      caption: options.caption,
+    },
+    buildEnrichmentParams({ collaborators: options.collaborators }, false)
+  );
 
-  return String(published.id);
+  await waitForContainer(containerId);
+  return publishContainer(containerId);
 };

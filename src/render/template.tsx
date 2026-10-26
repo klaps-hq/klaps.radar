@@ -5,7 +5,7 @@ import {
   splitScreeningDate,
 } from "../utils/format";
 
-export type Variant = "post" | "story";
+export type Variant = "post" | "story" | "reel";
 
 // Teaser look inspired by zine film posters: a duotone movie still fills a
 // framed card, an oversized condensed title hooks the eye, and the graphic
@@ -26,6 +26,8 @@ export const LAYOUTS = {
     eyebrowSize: 22,
     dateSize: 44,
     hookSize: 23,
+    safeBottom: 0,
+    safeRight: 0,
   },
   story: {
     width: 1080,
@@ -40,10 +42,37 @@ export const LAYOUTS = {
     eyebrowSize: 25,
     dateSize: 60,
     hookSize: 26,
+    safeBottom: 0,
+    safeRight: 0,
+  },
+  // Full-bleed overlay for the reel video: no frame (the animated backdrop
+  // shows through), and the text keeps clear of Instagram's reel UI - the
+  // caption/username block at the bottom and the action column on the right.
+  reel: {
+    width: 1080,
+    height: 1920,
+    frame: { top: 0, right: 0, bottom: 0, left: 0 },
+    radius: 0,
+    pad: 72,
+    headerTop: 150,
+    titleBase: 150,
+    eyebrowSize: 25,
+    dateSize: 56,
+    hookSize: 25,
+    safeBottom: 300,
+    safeRight: 110,
   },
 } as const;
 
 type Layout = (typeof LAYOUTS)[Variant];
+
+export const getCardSize = (variant: Variant) => {
+  const layout = LAYOUTS[variant];
+  return {
+    width: layout.width - layout.frame.left - layout.frame.right,
+    height: layout.height - layout.frame.top - layout.frame.bottom,
+  };
+};
 
 const getCardRect = (layout: Layout) => ({
   x: layout.frame.left,
@@ -52,6 +81,12 @@ const getCardRect = (layout: Layout) => ({
   height: layout.height - layout.frame.top - layout.frame.bottom,
   radius: layout.radius,
 });
+
+// Anton's Polish capitals (Ś, Ó, Ż, Ź, Ć, Ń) carry accents above the cap
+// height, so display text needs a roomier line box than Latin caps alone
+// and a gap below the eyebrow line, or the accents collide with it.
+export const DISPLAY_LINE_HEIGHT = 1.15;
+export const EYEBROW_GAP = 20;
 
 // Long titles shrink so they keep to one or two lines at most.
 const getTitleSize = (title: string, base: number): number => {
@@ -65,10 +100,13 @@ export const ScreeningImage = ({
   screening,
   imageUrl,
   variant,
+  footerLabel,
 }: {
   screening: Screening;
   imageUrl: string | null;
   variant: Variant;
+  // Replaces the default call to action, e.g. a carousel page counter.
+  footerLabel?: string;
 }) => {
   const layout = LAYOUTS[variant];
   const { movie, cinema } = screening;
@@ -92,7 +130,8 @@ export const ScreeningImage = ({
         color: "#ffffff",
         fontFamily: "Inter",
         padding: `${layout.frame.top}px ${layout.frame.right}px ${layout.frame.bottom}px ${layout.frame.left}px`,
-        backgroundColor: FRAME_COLOR,
+        // The reel overlay is composited over video, so it has no frame.
+        backgroundColor: variant === "reel" ? "rgba(0,0,0,0)" : FRAME_COLOR,
       }}
     >
       <div
@@ -141,7 +180,7 @@ export const ScreeningImage = ({
 
         {/* Story skips the brand bar: Instagram already shows the profile
             name at the top, so the logo would only duplicate the UI. */}
-        {variant === "post" && (
+        {variant !== "story" && (
           <div
             style={{
               display: "flex",
@@ -179,7 +218,7 @@ export const ScreeningImage = ({
           style={{
             display: "flex",
             flexDirection: "column",
-            padding: `0 ${layout.pad}px ${Math.round(layout.pad * 0.9)}px ${layout.pad}px`,
+            padding: `0 ${layout.pad + layout.safeRight}px ${Math.round(layout.pad * 0.9) + layout.safeBottom}px ${layout.pad}px`,
           }}
         >
           {eyebrow && (
@@ -197,12 +236,12 @@ export const ScreeningImage = ({
 
           <span
             style={{
-              marginTop: 10,
+              marginTop: EYEBROW_GAP,
               fontFamily: "Anton",
               fontSize: getTitleSize(movie.title, layout.titleBase),
               textTransform: "uppercase",
               letterSpacing: "0.01em",
-              lineHeight: 1.05,
+              lineHeight: DISPLAY_LINE_HEIGHT,
             }}
           >
             {movie.title}
@@ -268,9 +307,10 @@ export const ScreeningImage = ({
                 color: "rgba(255,255,255,0.92)",
               }}
             >
-              {variant === "post"
-                ? "Szczegóły w opisie"
-                : "Sprawdź na klaps.space"}
+              {footerLabel ??
+                (variant === "story"
+                  ? "Sprawdź na klaps.space"
+                  : "Szczegóły w opisie")}
             </span>
             {/* Lucide arrow-right - the same mark the klaps.space frontend
                 uses in its OG footer. */}

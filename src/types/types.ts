@@ -1,6 +1,8 @@
 export type Platform =
   | "instagram_post"
   | "instagram_story"
+  | "instagram_reel"
+  | "instagram_carousel"
   | "facebook_post"
   | "facebook_story"
   | "threads_post";
@@ -22,6 +24,11 @@ type ScreeningCinema = {
 
 type ScreeningMovie = {
   title: string;
+  titleOriginal?: string | null;
+  // ISO timestamp; anniversaries in the "Klasyka tygodnia" reel.
+  worldPremiereDate?: string | null;
+  // Genre links as returned by the API; only genreId is used (reel music).
+  movies_genres?: { genreId: number }[];
   description: string | null;
   productionYear: number;
   duration: number | null;
