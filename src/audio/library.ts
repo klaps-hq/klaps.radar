@@ -15,10 +15,12 @@ export type Mood =
   | "drama";
 
 // Prompted like the beats behind short-form movie edits, not like trailer
-// beds: the drums start on the first frame (no intro), every kick is clear
-// enough to cut on, and there is a drop early so the montage can hit it.
+// beds: the drums are in from the first bar and every kick is clear enough
+// to cut on. Each track also has a real ending, a final stinger hit about
+// 2.5 s before the end followed by its tail, so the reel's end card can
+// land on it instead of the music being cut off mid-phrase.
 const MUSIC_STYLE =
-  "instrumental only, no vocals, short-form video edit beat, drums start immediately on the first beat with no intro, punchy kick and snare, big bass drop at 2 seconds, steady tempo, loud modern mix";
+  "instrumental only, no vocals, short-form video edit beat, drums from the first bar, punchy kick and snare, steady tempo, loud modern mix, the track builds and then ends with one big final stinger hit at 12.5 seconds followed only by its reverb tail and silence, no fade out";
 
 export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
   classic: [
@@ -55,7 +57,7 @@ export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
   ],
 };
 
-export const MUSIC_LENGTH_MS = 12000;
+export const MUSIC_LENGTH_MS = 15000;
 
 export type Sfx =
   | "projector"

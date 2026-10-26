@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { detectBeats } from "../audio/beats";
-import { musicFile, pickMood, sfxFile } from "../audio/library";
+import { detectBeats, type BeatGrid } from "../audio/beats";
+import { musicFile, pickMood, sfxFile, type Mood } from "../audio/library";
+import { MUSIC_PROMPTS } from "../audio/library";
 import type { Screening } from "../types/types";
 import {
   cardScene,
@@ -27,11 +28,11 @@ const MUSIC_GAIN = 0.9;
 // Scene lengths are whole beats, at least this long so the text can land
 // and be read.
 const MIN_HOOK_S = 1.6;
-const MIN_CARD_S = 2.0;
-const MIN_END_S = 1.6;
-// Longer than this and the reel drags; slow tracks (often detected at half
-// tempo) are cut on half beats instead.
-const MAX_REEL_S = 14;
+const MIN_CARD_S = 1.8;
+const MIN_BEATS = 2;
+// The end card holds the music's tail after the final hit, up to this long.
+const MAX_TAIL_S = 2.5;
+const MIN_TAIL_S = 1.2;
 // Background motion: a slow eased push-in across each scene, plus a short
 // settle right after the cut so the cut itself has some energy.
 const PUSH = 0.06;
@@ -42,55 +43,89 @@ const FLASH_ALPHA = 0.85;
 // Constant light dim over posters so white text reads on bright artwork.
 const POSTER_DIM = 0.18;
 
-// Beat times relative to the first beat, halved for slow tracks and
-// extended with the period past the end of the detected grid.
-const beatClock = (detected: { beats: number[]; period: number }) => {
-  let times = detected.beats.map((b) => b - (detected.beats[0] ?? 0));
-  let period = detected.period;
-  return {
-    get period() {
-      return period;
-    },
-    halve() {
-      times = times.flatMap((t) => [t, t + period / 2]);
-      period /= 2;
-    },
-    at(index: number): number {
-      const last = times.length - 1;
-      return index <= last ? times[index]! : (times[last] ?? 0) + (index - last) * period;
-    },
-  };
+const beatsFor = (seconds: number, period: number) =>
+  Math.max(MIN_BEATS, Math.ceil(seconds / period));
+
+type Timeline = {
+  scenes: Scene[];
+  musicStart: number; // offset into the track at video time 0
+  total: number;
+  endAt: number; // video time of the end card (= the final hit)
 };
 
-const beatsFor = (seconds: number, period: number) =>
-  Math.max(2, Math.ceil(seconds / period));
+// Beat plan for the content (hook + cards) on a track: whole beats per
+// scene, cut on half beats for slow tracks so it fits before the ending.
+const planBeats = (count: number, grid: BeatGrid) => {
+  let period = grid.period;
+  const plan = () => {
+    const hookBeats = beatsFor(MIN_HOOK_S, period);
+    const cardBeats = beatsFor(MIN_CARD_S, period);
+    return { period, hookBeats, cardBeats, contentS: (hookBeats + count * cardBeats) * period };
+  };
+  let current = plan();
+  while (current.contentS > grid.ending && period > 0.3) {
+    period /= 2;
+    current = plan();
+  }
+  return current;
+};
 
-const buildScenes = (
+// Picks the bed: the film's mood first (both variants), then any other bed
+// whose ending leaves room for the whole line-up, so the end card can land
+// on the final hit. Falls back to the bed with the most room.
+const pickTrack = async (count: number, mood: Mood, preferred: 0 | 1) => {
+  const moods = Object.keys(MUSIC_PROMPTS) as Mood[];
+  const order: [Mood, 0 | 1][] = [
+    [mood, preferred],
+    [mood, (1 - preferred) as 0 | 1],
+    ...moods.filter((m) => m !== mood).flatMap((m): [Mood, 0 | 1][] => [[m, 0], [m, 1]]),
+  ];
+  let best: { file: string; grid: BeatGrid; room: number } | null = null;
+  for (const [m, v] of order) {
+    const file = join(AUDIO_DIR, musicFile(m, v));
+    const grid = await detectBeats(file);
+    const room = grid.ending - planBeats(count, grid).contentS;
+    if (room >= 0) return { file, grid };
+    if (!best || room > best.room) best = { file, grid, room };
+  }
+  return { file: best!.file, grid: best!.grid };
+};
+
+// The timeline is anchored on the music's final hit: the end card starts
+// exactly on it, and the hook and cards are laid out backwards from there
+// in whole beats, so every cut sits on the beat and the song ends on the
+// end card instead of being cut off. The music starts mid-track if needed.
+const buildTimeline = (
   lineup: Screening[],
   hookLines: [string, string],
   posters: (Buffer | null)[],
-  clock: ReturnType<typeof beatClock>
-): Scene[] => {
-  const period = clock.period;
-  const scenes: Scene[] = [];
-  let beat = 0;
-  const span = (beats: number) => {
-    const start = clock.at(beat);
-    beat += beats;
-    return [start, clock.at(beat)] as const;
-  };
+  grid: BeatGrid
+): Timeline => {
+  const { period, hookBeats, cardBeats, contentS } = planBeats(lineup.length, grid);
+  // If even the best track is too short, the music starts at 0 and the end
+  // card follows the content (no longer exactly on the hit).
+  const musicStart = Math.max(0, grid.ending - contentS);
+  const endAt = contentS;
+  const tail = Math.min(MAX_TAIL_S, Math.max(MIN_TAIL_S, grid.duration - grid.ending));
 
-  const [hookStart, hookEnd] = span(beatsFor(MIN_HOOK_S, period));
+  const scenes: Scene[] = [];
+  let t = 0;
+  const span = (beats: number) => {
+    const start = t;
+    t += beats * period;
+    return [start, t] as const;
+  };
+  const [hookStart, hookEnd] = span(hookBeats);
   scenes.push(hookScene(hookLines, hookStart, hookEnd, period));
   lineup.forEach((screening, i) => {
-    const [start, end] = span(beatsFor(MIN_CARD_S, period));
+    const [start, end] = span(cardBeats);
     scenes.push(
       cardScene(screening, i, lineup.length, posters[i] ? i : null, start, end, period, i === 0)
     );
   });
-  const [endStart, endEnd] = span(beatsFor(MIN_END_S, period));
-  scenes.push(endScene(endStart, endEnd, period));
-  return scenes;
+  scenes.push(endScene(endAt, endAt + tail, period));
+
+  return { scenes, musicStart, total: endAt + tail, endAt };
 };
 
 // Poster frame at time t: centred crop that pushes in slowly with an
@@ -127,19 +162,17 @@ export const renderLineupReel = async (
   const genreIds = (moodSource.movie.movies_genres ?? []).map((g) => g.genreId);
   const mood = pickMood(genreIds, moodSource.movie.productionYear);
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
-  const music = join(AUDIO_DIR, musicFile(mood, variant));
 
-  const [posters, detected] = await Promise.all([
+  const [posters, { file: music, grid: detected }] = await Promise.all([
     Promise.all(lineup.map(fetchReelPosterRaw)),
-    detectBeats(music),
+    pickTrack(lineup.length, mood, variant),
   ]);
-  const clock = beatClock(detected);
-  let scenes = buildScenes(lineup, hookLines, posters, clock);
-  while (scenes.at(-1)!.end > MAX_REEL_S && clock.period > 0.25) {
-    clock.halve();
-    scenes = buildScenes(lineup, hookLines, posters, clock);
-  }
-  const total = scenes.at(-1)!.end;
+  const { scenes, musicStart, total, endAt } = buildTimeline(
+    lineup,
+    hookLines,
+    posters,
+    detected
+  );
   const frames = Math.round(total * FPS);
   const dropAt = scenes.find((s) => s.flash)?.start ?? 0;
 
@@ -147,17 +180,23 @@ export const renderLineupReel = async (
   try {
     const output = join(dir, "reel.mp4");
     const dropMs = Math.round(dropAt * 1000);
+    const endMs = Math.round(endAt * 1000);
     const proc = Bun.spawn(
       [
         FFMPEG, "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${W}x${H}`, "-r", String(FPS), "-i", "-",
-        "-ss", (detected.beats[0] ?? 0).toFixed(3), "-i", music,
+        "-ss", musicStart.toFixed(3), "-i", music,
+        "-i", join(AUDIO_DIR, sfxFile("impact")),
         "-i", join(AUDIO_DIR, sfxFile("impact")),
         "-filter_complex",
         [
-          `[1:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.4).toFixed(3)}:d=0.4,volume=${MUSIC_GAIN}[m]`,
-          `[2:a]adelay=${dropMs}|${dropMs},volume=0.5[hit]`,
-          `[m][hit]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`,
+          // The track's own ending carries the end card; only a short fade
+          // in case its tail runs past the video.
+          `[1:a]atrim=0:${total.toFixed(3)},afade=t=out:st=${(total - 0.25).toFixed(3)}:d=0.25,volume=${MUSIC_GAIN}[m]`,
+          `[2:a]adelay=${dropMs}|${dropMs},volume=0.45[drop]`,
+          // Reinforces the final hit under the end card.
+          `[3:a]adelay=${endMs}|${endMs},volume=0.4[end]`,
+          `[m][drop][end]amix=inputs=3:normalize=0:duration=first,alimiter=limit=0.95,aresample=44100[a]`,
         ].join(";"),
         "-map", "0:v", "-map", "[a]",
         "-c:v", "libx264", "-preset", "medium", "-crf", "20",

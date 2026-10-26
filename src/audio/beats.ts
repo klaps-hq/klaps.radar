@@ -33,11 +33,52 @@ const onsetEnvelope = (samples: Float32Array): Float32Array => {
   return onset;
 };
 
-export type BeatGrid = { period: number; beats: number[] };
+export type BeatGrid = {
+  period: number;
+  beats: number[];
+  // The track's final stinger: the strongest onset in its last seconds.
+  // The reel's end card lands on it.
+  ending: number;
+  duration: number;
+};
+
+// The music "ends" where it last stays within this many dB of its typical
+// loudness; after that it only decays. The final hit is the strongest onset
+// in the window just before that point.
+const DECAY_DB = 12;
+const ENDING_WINDOW_S = 1.5;
+const LOUDNESS_WINDOW_S = 0.05;
+
+// Time of the final hit: the strongest onset shortly before the point after
+// which the track never returns to near its typical loudness.
+const findEnding = (samples: Float32Array, onset: Float32Array, stepS: number): number => {
+  const win = Math.round(LOUDNESS_WINDOW_S * SAMPLE_RATE);
+  const levels: number[] = [];
+  for (let a = 0; a + win <= samples.length; a += win) {
+    let sum = 0;
+    for (let i = a; i < a + win; i += 1) sum += samples[i]! * samples[i]!;
+    levels.push(10 * Math.log10(sum / win + 1e-12));
+  }
+  const sorted = [...levels].sort((x, y) => x - y);
+  const typical = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
+  let last = levels.length - 1;
+  while (last > 0 && levels[last]! < typical - DECAY_DB) last -= 1;
+  const decayAt = (last + 1) * LOUDNESS_WINDOW_S;
+
+  const from = Math.max(0, Math.floor((decayAt - ENDING_WINDOW_S) / stepS));
+  const to = Math.min(onset.length - 1, Math.ceil(decayAt / stepS));
+  let best = from;
+  for (let f = from; f <= to; f += 1) {
+    if (onset[f]! > onset[best]!) best = f;
+  }
+  return best * stepS;
+};
 
 export const detectBeats = async (file: string, maxSeconds = 12): Promise<BeatGrid> => {
-  const onset = onsetEnvelope(await decode(file));
+  const samples = await decode(file);
+  const onset = onsetEnvelope(samples);
   const stepS = HOP / SAMPLE_RATE;
+  const duration = samples.length / SAMPLE_RATE;
   const frames = Math.min(onset.length, Math.floor(maxSeconds / stepS));
 
   // Period: the lag whose autocorrelation is strongest within the tempo
@@ -74,6 +115,11 @@ export const detectBeats = async (file: string, maxSeconds = 12): Promise<BeatGr
   }
 
   const beats: number[] = [];
-  for (let f = bestPhase; f < frames; f += bestLag) beats.push(f * stepS);
-  return { period: bestLag * stepS, beats };
+  for (let f = bestPhase; f < onset.length; f += bestLag) beats.push(f * stepS);
+
+  // Not snapped to the grid: landing exactly on the hit matters more to
+  // the ear than a perfectly regular last bar.
+  const ending = findEnding(samples, onset, stepS);
+
+  return { period: bestLag * stepS, beats, ending, duration };
 };

@@ -5,16 +5,29 @@ import { splitScreeningDate } from "../utils/format";
 import { loadFonts } from "./render";
 import { DISPLAY_LINE_HEIGHT } from "./template";
 
-// Kinetic typography for the line-up reel. Each scene is a set of text
-// elements scattered over the frame; every element eases in on its own
-// beat (slide + fade) and eases out just before the cut.
+// Kinetic typography for the line-up reel. Every scene uses the same grid
+// inside Instagram's safe zone (controlled asymmetry, not random scatter):
+// meta row at the top (counter left, weekday chip right), the title on the
+// left axis with a deliberate indent on its second line, date and time on
+// the right axis, the venue chip at the bottom. Elements ease in on beats
+// in a fixed order and direction (title from the left, numbers from the
+// right, chips rise) and ease out together just before the cut.
 // The text layer is rendered per frame with satori and composited over the
 // poster by the video pipeline.
 export const W = 1080;
 export const H = 1920;
-// Reel UI: top bar, caption block at the bottom, action column on the right.
+// Safe zone per Meta's Reels guidance: ~270 px top bar, ~670 px caption
+// block at the bottom, ~230 px action rail on the right over the bottom
+// 40%. Text stays inside x 72-1008, y 290-1240, and right-aligned text
+// stays above the rail (y < 1150).
 const LEFT = 72;
-const RIGHT = W - 72 - 110;
+const RIGHT = W - 72;
+const TOP = 290;
+const TITLE_TOP = 470;
+const RAIL_TOP = 1150;
+const VENUE_TOP = 1150;
+// Second title line is indented by one grid step.
+const INDENT = 56;
 const SHADOW = "0 4px 24px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.6)";
 
 export const ENTER_S = 0.42;
@@ -124,16 +137,15 @@ const describe = (screening: Screening) => {
   };
 };
 
-// Splits a title into up to three lines of roughly balanced length, so it
-// can be scattered as separate words/lines.
-const splitTitle = (title: string): string[] => {
+// Splits a title into up to `maxLines` lines of roughly balanced length.
+const splitTitle = (title: string, maxLines = 3): string[] => {
   const words = title.split(/\s+/);
   if (words.length === 1) return words;
   const lines: string[] = [];
-  const target = Math.max(8, Math.ceil(title.length / Math.min(3, words.length)));
+  const target = Math.max(8, Math.ceil(title.length / Math.min(maxLines, words.length)));
   let line = "";
   for (const word of words) {
-    if (line && (line + " " + word).length > target && lines.length < 2) {
+    if (line && (line + " " + word).length > target && lines.length < maxLines - 1) {
       lines.push(line);
       line = word;
     } else {
@@ -146,23 +158,35 @@ const splitTitle = (title: string): string[] => {
 
 const titleSize = (lines: string[]): number => {
   const longest = Math.max(...lines.map((l) => l.length));
-  if (longest > 16) return 84;
-  if (longest > 11) return 100;
-  return 124;
+  if (longest > 16) return 96;
+  if (longest > 11) return 116;
+  return 140;
 };
 
-// Entry times: one element per half beat from the scene start, compressed
-// so the last one is in by 55% of the scene and everything can be read.
-const staggered = (start: number, end: number, count: number, beat: number) => {
-  const step = Math.min(beat / 2, ((end - start) * 0.55) / Math.max(1, count - 1));
-  return Array.from({ length: count }, (_, i) => start + i * step);
-};
+type Draft = Omit<TextElement, "enter" | "exit"> & { group: number };
 
-type Draft = Omit<TextElement, "enter" | "exit">;
-
+// Groups enter in order, one beat apart at most, compressed so the last
+// group is in by half of the scene and everything can be read.
 const schedule = (drafts: Draft[], start: number, end: number, beat: number): TextElement[] => {
-  const times = staggered(start, end, drafts.length, beat);
-  return drafts.map((d, i) => ({ ...d, enter: times[i]!, exit: end }));
+  const groups = Math.max(...drafts.map((d) => d.group)) + 1;
+  const step = Math.min(beat, ((end - start) * 0.5) / Math.max(1, groups - 1));
+  return drafts.map(({ group, ...d }) => ({ ...d, enter: start + group * step, exit: end }));
+};
+
+// Title lines from the left on consecutive half steps (same group spacing
+// split into lines via small offsets in time handled by the group index).
+const titleDrafts = (lines: string[], size: number, firstGroup: number): Draft[] => {
+  const lineH = Math.round(size * DISPLAY_LINE_HEIGHT);
+  return lines.map((line, i) => ({
+    key: `t${i}`,
+    x: LEFT + (i === 1 ? INDENT : 0),
+    y: TITLE_TOP + i * lineH,
+    align: "left",
+    dx: -60,
+    dy: 0,
+    group: firstGroup + i,
+    node: <Display text={line} size={size} />,
+  }));
 };
 
 // --- Scenes ------------------------------------------------------------------
@@ -173,18 +197,28 @@ export const hookScene = (
   end: number,
   beat: number
 ): Scene => {
-  const [first, second] = lines;
-  const words = first.split(" ");
-  const split = Math.ceil(words.length / 2);
+  const [headline, detail] = lines;
+  const title = splitTitle(headline, 2);
+  const size = 150;
+  const lineH = Math.round(size * DISPLAY_LINE_HEIGHT);
   return {
     start,
     end,
     poster: 0,
     elements: schedule(
       [
-        { key: "h1", x: LEFT, y: 620, align: "left", dx: -60, dy: 0, node: <Box text={words.slice(0, split).join(" ")} size={58} /> },
-        { key: "h2", x: RIGHT, y: 720, align: "right", dx: 60, dy: 0, node: <Box text={words.slice(split).join(" ")} size={58} /> },
-        { key: "h3", x: LEFT + 60, y: 880, align: "left", dx: 0, dy: 50, node: <Box text={second} size={46} /> },
+        { key: "logo", x: LEFT, y: TOP, align: "left", dx: 0, dy: 20, group: 0, node: <Logo size={44} /> },
+        ...titleDrafts(title, size, 1),
+        {
+          key: "detail",
+          x: LEFT,
+          y: TITLE_TOP + title.length * lineH + 40,
+          align: "left",
+          dx: 0,
+          dy: 24,
+          group: 1 + title.length,
+          node: <Box text={detail} size={44} />,
+        },
       ],
       start,
       end,
@@ -193,8 +227,6 @@ export const hookScene = (
   };
 };
 
-// Three scatter layouts, rotated per card so consecutive cards do not
-// repeat the same composition.
 export const cardScene = (
   screening: Screening,
   index: number,
@@ -209,84 +241,76 @@ export const cardScene = (
   const title = splitTitle(screening.movie.title);
   const size = titleSize(title);
   const lineH = Math.round(size * DISPLAY_LINE_HEIGHT);
-  const when = time ? `${dayMonth} · ${time}` : dayMonth;
-  const counter = `${index + 1}/${total}`;
-  const city = screening.cinema.city.name;
-  const cinema = screening.cinema.name;
-  const layout = index % 3;
+  const venue = `${screening.cinema.name} · ${screening.cinema.city.name}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // Date sits under the title on the right axis, kept above the action rail.
+  const whenTop = Math.min(TITLE_TOP + title.length * lineH + 40, RAIL_TOP - 150);
 
-  const titleDrafts = (x: number, y: number, align: "left" | "right", shift: number): Draft[] =>
-    title.map((line, i) => ({
-      key: `t${i}`,
-      x: align === "left" ? x + (i % 2) * shift : x - (i % 2) * shift,
-      y: y + i * lineH,
-      align,
-      dx: align === "left" ? -50 : 50,
+  const drafts: Draft[] = [
+    { key: "n", x: LEFT, y: TOP + 8, align: "left", dx: 0, dy: 20, group: 0, node: <Label text={`${pad(index + 1)} / ${pad(total)}`} size={34} /> },
+    { key: "day", x: RIGHT, y: TOP, align: "right", dx: 0, dy: 20, group: 0, node: <Box text={weekday} size={40} /> },
+    ...titleDrafts(title, size, 1),
+    {
+      key: "when",
+      x: RIGHT,
+      y: whenTop,
+      align: "right",
+      dx: 60,
       dy: 0,
-      node: <Display text={line} size={size} />,
-    }));
-
-  let drafts: Draft[];
-  if (layout === 0) {
-    drafts = [
-      { key: "day", x: LEFT, y: 300, align: "left", dx: 0, dy: -40, node: <Label text={weekday} /> },
-      { key: "when", x: LEFT, y: 360, align: "left", dx: 0, dy: -40, node: <Display text={when} size={92} /> },
-      ...titleDrafts(LEFT, 880, "left", 90),
-      { key: "city", x: RIGHT, y: 880 + title.length * lineH + 50, align: "right", dx: 60, dy: 0, node: <Box text={city} /> },
-      { key: "cinema", x: LEFT, y: 1480, align: "left", dx: 0, dy: 30, node: <Plain text={cinema} /> },
-      { key: "n", x: RIGHT, y: 200, align: "right", dx: 0, dy: -30, node: <Label text={counter} size={36} /> },
-    ];
-  } else if (layout === 1) {
-    drafts = [
-      ...titleDrafts(LEFT, 330, "left", 70),
-      { key: "day", x: RIGHT, y: 1080, align: "right", dx: 50, dy: 0, node: <Label text={weekday} /> },
-      { key: "when", x: RIGHT, y: 1140, align: "right", dx: 50, dy: 0, node: <Display text={when} size={92} /> },
-      { key: "city", x: LEFT, y: 1330, align: "left", dx: -60, dy: 0, node: <Box text={city} /> },
-      { key: "cinema", x: RIGHT, y: 1480, align: "right", dx: 0, dy: 30, node: <Plain text={cinema} /> },
-      { key: "n", x: LEFT, y: 200, align: "left", dx: 0, dy: -30, node: <Label text={counter} size={36} /> },
-    ];
-  } else {
-    drafts = [
-      { key: "city", x: RIGHT, y: 260, align: "right", dx: 60, dy: 0, node: <Box text={city} /> },
-      ...titleDrafts(RIGHT, 640, "right", 80),
-      { key: "day", x: LEFT, y: 640 + title.length * lineH + 90, align: "left", dx: -50, dy: 0, node: <Label text={weekday} /> },
-      { key: "when", x: LEFT, y: 640 + title.length * lineH + 150, align: "left", dx: -50, dy: 0, node: <Display text={when} size={92} /> },
-      { key: "cinema", x: LEFT, y: 1480, align: "left", dx: 0, dy: 30, node: <Plain text={cinema} /> },
-      { key: "n", x: LEFT, y: 200, align: "left", dx: 0, dy: -30, node: <Label text={counter} size={36} /> },
-    ];
-  }
+      group: 1 + title.length,
+      node: <Display text={time ? `${dayMonth} · ${time}` : dayMonth} size={104} />,
+    },
+    {
+      key: "venue",
+      x: LEFT,
+      y: VENUE_TOP,
+      align: "left",
+      dx: 0,
+      dy: 24,
+      group: 2 + title.length,
+      node: <Box text={venue} size={venue.length > 26 ? 34 : 40} />,
+    },
+  ];
 
   return { start, end, poster, elements: schedule(drafts, start, end, beat), flash };
 };
 
-const Logo = ({ size }: { size: number }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: Math.round(size * 0.4) }}>
-    <svg width={Math.round(size * 0.94)} height={Math.round(size * 0.67)} viewBox="0 0 28 20" fill="none">
-      <polygon points="0,8 28,0 28,20 0,12" fill="#ffffff" />
-    </svg>
-    <span style={{ fontFamily: "Inter", fontSize: size, fontWeight: 700, letterSpacing: "-0.02em", color: "#ffffff" }}>
-      klaps
-    </span>
-  </div>
-);
+function Logo({ size }: { size: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: Math.round(size * 0.4) }}>
+      <svg width={Math.round(size * 0.94)} height={Math.round(size * 0.67)} viewBox="0 0 28 20" fill="none">
+        <polygon points="0,8 28,0 28,20 0,12" fill="#ffffff" />
+      </svg>
+      <span style={{ fontFamily: "Inter", fontSize: size, fontWeight: 700, letterSpacing: "-0.02em", color: "#ffffff" }}>
+        klaps
+      </span>
+    </div>
+  );
+}
 
-export const endScene = (start: number, end: number, beat: number): Scene => ({
-  start,
-  end,
-  poster: null,
-  elements: schedule(
-    [
-      { key: "logo", x: LEFT, y: 600, align: "left", dx: 0, dy: 40, node: <Logo size={64} /> },
-      { key: "all", x: LEFT, y: 720, align: "left", dx: -50, dy: 0, node: <Display text="Wszystkie seanse" size={110} /> },
-      { key: "url", x: RIGHT, y: 900, align: "right", dx: 50, dy: 0, node: <Box text="klaps.space" size={56} /> },
-      { key: "save", x: LEFT, y: 1040, align: "left", dx: 0, dy: 30, node: <Plain text="Zapisz, żeby nie przegapić · link w bio" size={34} /> },
-    ],
+// End card on black, landing on the music's final hit. Nothing fades out:
+// it is the last thing on screen.
+export const endScene = (start: number, end: number, beat: number): Scene => {
+  const title = ["Wszystkie", "seanse"];
+  const size = 150;
+  const lineH = Math.round(size * DISPLAY_LINE_HEIGHT);
+  return {
     start,
-    // The end card has no cut after it, so nothing fades out.
-    end + EXIT_S,
-    beat
-  ),
-});
+    end,
+    poster: null,
+    elements: schedule(
+      [
+        { key: "logo", x: LEFT, y: TOP, align: "left", dx: 0, dy: 20, group: 0, node: <Logo size={44} /> },
+        ...titleDrafts(title, size, 0),
+        { key: "url", x: RIGHT, y: TITLE_TOP + 2 * lineH + 40, align: "right", dx: 60, dy: 0, group: 1, node: <Box text="klaps.space" size={56} /> },
+        { key: "save", x: LEFT, y: VENUE_TOP - 60, align: "left", dx: 0, dy: 24, group: 2, node: <Plain text="Zapisz, żeby nie przegapić · link w bio" size={34} /> },
+      ],
+      start,
+      end + EXIT_S,
+      beat
+    ),
+  };
+};
 
 // --- Rendering ---------------------------------------------------------------
 
