@@ -21,7 +21,7 @@ export type MonthStats = {
   highlights: Movie[];
 };
 
-const POLISH_MONTHS = [
+export const POLISH_MONTHS = [
   "styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
   "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień",
 ];
@@ -65,15 +65,17 @@ export type Retrospective = {
   // Display name ("Kubrick") and the full name for the TMDB photo lookup.
   director: string;
   directorFullName: string;
+  // API id, recorded once published so the director is not repeated.
+  directorId?: number;
   films: { movie: Movie; from: string; cities: number }[];
 };
 
-const formatDayMonth = (iso: string): string => {
+export const formatDayMonth = (iso: string): string => {
   const [, m, d] = iso.split("-");
   return `${Number(d)}.${m}`;
 };
 
-const plural = (n: number, one: string, few: string, many: string): string =>
+export const plural = (n: number, one: string, few: string, many: string): string =>
   n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many;
 
 // The cover is the director's portrait; without a photo on TMDB the

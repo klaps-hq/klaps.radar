@@ -30,7 +30,7 @@ const MIN_CAROUSEL_SCREENINGS = 3;
 // Instagram fetches media from a public URL, so the rendered image (or reel
 // video) is parked in our own API (GET /socials/image/:id is public) just
 // long enough for the Graph API to ingest it; the API prunes stale files.
-const uploadTemporaryMedia = async (
+export const uploadTemporaryMedia = async (
   buffer: Buffer,
   kind: "image" | "video" = "image"
 ): Promise<string> => {
