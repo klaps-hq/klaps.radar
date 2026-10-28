@@ -107,6 +107,8 @@ jobs:
             IG_REEL_SUNDAY_CRON=${{ secrets.IG_REEL_SUNDAY_CRON }}
             IG_CAROUSEL_CRON=${{ secrets.IG_CAROUSEL_CRON }}
             TMDB_API_KEY=${{ secrets.TMDB_API_KEY }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            GEMINI_API_URL=${{ secrets.GEMINI_API_URL }}
             FB_POST_CRON=${{ secrets.FB_POST_CRON }}
             FB_STORY_CRON=${{ secrets.FB_STORY_CRON }}
             THREADS_POST_CRON=${{ secrets.THREADS_POST_CRON }}
