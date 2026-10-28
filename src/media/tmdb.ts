@@ -148,3 +148,20 @@ export const preferTextlessArt = async (
   const without = head.filter((_, i) => !arts[i]!.textlessPoster);
   return [...withArt, ...without, ...screenings.slice(limit)];
 };
+
+// Portrait photos of a person (director covers), best first. TMDB profile
+// images are 2:3, so they survive a portrait crop. Sharp ones only.
+export const getPersonPhotos = async (name: string): Promise<string[]> => {
+  const search = await tmdbGet<{ results: { id: number; known_for_department?: string }[] }>(
+    "/search/person",
+    { query: name }
+  );
+  const person =
+    search?.results.find((r) => r.known_for_department === "Directing") ?? search?.results[0];
+  if (!person) return [];
+  const images = await tmdbGet<{ profiles: TmdbImage[] }>(`/person/${person.id}/images`, {});
+  return (images?.profiles ?? [])
+    .filter((p) => p.width >= 600)
+    .sort((a, b) => b.width - a.width)
+    .map((p) => p.file_path);
+};
