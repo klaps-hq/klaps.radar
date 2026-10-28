@@ -4,6 +4,7 @@ import { isFacebookConfigured } from "../facebook";
 import { createSocialMedia } from "../publish";
 import { isThreadsConfigured } from "../threads";
 import { reelRange, type ReelKind } from "../reels";
+import { publishMonthStats, publishRetrospective } from "../series-publish";
 import type { Platform } from "../types/types";
 import { addDays, todayInPoland } from "../utils/format";
 
@@ -25,6 +26,11 @@ const REEL_WEEKEND_CRON = process.env.IG_REEL_WEEKEND_CRON || "30 18 * * 4";
 const REEL_SUNDAY_CRON = process.env.IG_REEL_SUNDAY_CRON || "30 18 * * 6";
 const CAROUSEL_CRON = process.env.IG_CAROUSEL_CRON || "30 11 * * 3";
 const STORY_CRON = process.env.IG_STORY_CRON || "30 8,17 * * *";
+// Editorial series (src/series-publish.ts): "Klaps w liczbach" on the 1st of
+// the month in the evening, clear of the 11:30 feed slot; the retrospective
+// check on Monday evening, which has no reel.
+const SERIES_STATS_CRON = process.env.IG_SERIES_STATS_CRON || "30 19 1 * *";
+const SERIES_RETRO_CRON = process.env.IG_SERIES_RETRO_CRON || "30 18 * * 1";
 const FB_POST_CRON = process.env.FB_POST_CRON || "0 13 * * *";
 const FB_STORY_CRON = process.env.FB_STORY_CRON || "45 8,17 * * *";
 const THREADS_POST_CRON = process.env.THREADS_POST_CRON || "30 18 * * *";
@@ -90,6 +96,12 @@ new Cron(STORY_CRON, { timezone: TIMEZONE }, () =>
   runJob("instagram_story", 1, STORIES_PER_DAY)
 );
 
+// Series failures are logged, never thrown: the scheduler must keep running.
+const runSeries = (name: string, job: () => Promise<void>) => () =>
+  job().catch((error) => console.error(`[series:${name}] failed:`, error));
+new Cron(SERIES_STATS_CRON, { timezone: TIMEZONE }, runSeries("stats", () => publishMonthStats()));
+new Cron(SERIES_RETRO_CRON, { timezone: TIMEZONE }, runSeries("retrospective", publishRetrospective));
+
 if (isFacebookConfigured()) {
   new Cron(FB_POST_CRON, { timezone: TIMEZONE }, () =>
     runJob("facebook_post", 6)
@@ -114,5 +126,5 @@ if (isThreadsConfigured()) {
 }
 
 console.log(
-  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-reels: "${REEL_CLASSIC_CRON}" / "${REEL_WEEKEND_CRON}" / "${REEL_SUNDAY_CRON}", ig-carousel: "${CAROUSEL_CRON}", ig-story: "${STORY_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
+  `klaps-radar scheduler started (ig-post: "${POST_CRON}", ig-reels: "${REEL_CLASSIC_CRON}" / "${REEL_WEEKEND_CRON}" / "${REEL_SUNDAY_CRON}", ig-carousel: "${CAROUSEL_CRON}", ig-story: "${STORY_CRON}", series: "${SERIES_STATS_CRON}" / "${SERIES_RETRO_CRON}", fb-post: "${FB_POST_CRON}", fb-story: "${FB_STORY_CRON}", threads: "${THREADS_POST_CRON}", stories/day: ${STORIES_PER_DAY}, jitter: ${JITTER_MINUTES}m, tz: ${TIMEZONE})`
 );

@@ -9,6 +9,7 @@
     "create:instagram-story": "bun --env-file .env src/scripts/create/instagram-story.ts",
     "create:instagram-reel": "bun --env-file .env src/scripts/create/instagram-reel.ts",
     "create:instagram-carousel": "bun --env-file .env src/scripts/create/instagram-carousel.ts",
+    "create:instagram-series": "bun --env-file .env src/scripts/create/instagram-series.ts",
     "create:facebook-post": "bun --env-file .env src/scripts/create/facebook-post.ts",
     "create:facebook-story": "bun --env-file .env src/scripts/create/facebook-story.ts",
     "create:threads-post": "bun --env-file .env src/scripts/create/threads-post.ts"
