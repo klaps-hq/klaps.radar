@@ -1,5 +1,6 @@
 import satori from "satori";
 import sharp from "sharp";
+import { fetchPickedArt } from "../media/pick";
 import { getMovieArt } from "../media/tmdb";
 import type { Screening } from "../types/types";
 import {
@@ -39,13 +40,13 @@ export const loadFonts = (): Promise<SatoriFont[]> => {
 // The DB stores TMDB paths ("/abc.jpg"), not full URLs. Full "original"
 // resolution: the story card is ~1700px tall, so sized variants (w1280)
 // would be upscaled and soft.
-const resolveImageUrl = (value: string, size = "original"): string =>
+export const resolveImageUrl = (value: string, size = "original"): string =>
   value.startsWith("/") ? `https://image.tmdb.org/t/p/${size}${value}` : value;
 
 const getScreeningImagePath = (screening: Screening): string | null =>
   screening.movie.backdropUrl ?? screening.movie.posterUrl;
 
-const fetchImageBuffer = async (url: string): Promise<Buffer | null> => {
+export const fetchImageBuffer = async (url: string): Promise<Buffer | null> => {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(15000),
   }).catch(() => null);
@@ -60,7 +61,7 @@ type Box = { width: number; height: number };
 // instead: it favours skin tones, saturation and detail. Satori then gets
 // an image that already has the card's aspect ratio. Satori does not fetch
 // remote images, so the result is inlined as a data URL.
-const cropToBox = async (image: Buffer, box: Box): Promise<string> => {
+export const cropToBox = async (image: Buffer, box: Box): Promise<string> => {
   const cropped = await sharp(image)
     .resize({
       width: box.width,
@@ -73,7 +74,7 @@ const cropToBox = async (image: Buffer, box: Box): Promise<string> => {
   return `data:image/jpeg;base64,${cropped.toString("base64")}`;
 };
 
-const renderElement = async (
+export const renderElement = async (
   element: Parameters<typeof satori>[0],
   size: { width: number; height: number },
   format: "jpeg" | "png" = "jpeg"
@@ -112,7 +113,7 @@ const regionStats = async (image: Buffer, region: Region) => {
   };
 };
 
-const isCutout = async (image: Buffer): Promise<boolean> => {
+export const isCutout = async (image: Buffer): Promise<boolean> => {
   const meta = await sharp(image).metadata();
   if (meta.hasAlpha) {
     const { channels } = await sharp(image).stats();
@@ -172,6 +173,10 @@ const fetchScreeningImage = async (
   size?: string
 ): Promise<string | null> => {
   const portrait = box.height > box.width;
+  if (portrait) {
+    const picked = await fetchPickedArt(screening.movie, "any", box, size);
+    if (picked) return picked;
+  }
   const fallback = getScreeningImagePath(screening);
   const image = portrait
     ? await fetchKeyArt(screening, [fallback, screening.movie.backdropUrl], size)
@@ -206,6 +211,8 @@ export const fetchReelPosterUrl = async (
   screening: Screening,
   box: Box
 ): Promise<string | null> => {
+  const picked = await fetchPickedArt(screening.movie, "poster", box);
+  if (picked) return picked;
   const poster = await fetchReelPoster(screening);
   return poster ? cropToBox(poster, box) : null;
 };
