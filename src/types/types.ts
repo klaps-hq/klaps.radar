@@ -52,9 +52,12 @@ export type FetchCandidateConfig = {
   platform: Platform;
   minScore?: number;
   numberOfCandidates?: number;
-  // How many posts may already exist in the range before the API reports
+  // How many posts the platform may publish per day before the API reports
   // ALREADY_PUBLISHED - lets stories run more than one slot per day.
   maxPosts?: number;
+  // Publication day (YYYY-MM-DD, Polish) the daily limit applies to; the API
+  // defaults to today. The planner sets it for slots on later days.
+  publishDay?: string;
 };
 
 export type FetchCandidateResponse = {
