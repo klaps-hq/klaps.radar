@@ -14,8 +14,10 @@ import { DISPLAY_LINE_HEIGHT, EYEBROW_GAP } from "./template";
 export const W = 1080;
 export const H = 1920;
 
-// Card geometry, as the story template (frame margins, radius).
-const CARD = { x: 44, y: 150, width: W - 88, height: H - 150 - 56, radius: 18 };
+// Card geometry: the full frame inside one even margin, so the poster runs
+// the whole height under the reel UI instead of leaving a black band on top.
+const MARGIN = 44;
+const CARD = { x: MARGIN, y: MARGIN, width: W - MARGIN * 2, height: H - MARGIN * 2, radius: 18 };
 const PAD = 56;
 // Reel UI: the top bar (~270 px), the username and a short caption at the
 // bottom, and the action rail on the right of the lower half. As in the
@@ -175,9 +177,10 @@ const CardBase = ({
             width: CARD.width,
             height: CARD.height,
             borderRadius: CARD.radius,
-            // Light at the top for the header, dark only over the lower part
-            // where the text block sits, so most of the poster stays clear.
-            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.45 + dim}) 0%, rgba(0,0,0,${0.05 + dim}) 14%, rgba(0,0,0,${0.05 + dim}) 42%, rgba(0,0,0,${0.55 + dim / 2}) 58%, rgba(0,0,0,0.9) 72%, rgba(0,0,0,0.96) 100%)`,
+            // A soft band behind the header (the poster now runs to the top,
+            // often with its own title art there), dark again only over the
+            // lower part where the text block sits, so most of the poster stays clear.
+            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.55 + dim}) 0%, rgba(0,0,0,${0.35 + dim}) 12%, rgba(0,0,0,${0.05 + dim}) 22%, rgba(0,0,0,${0.05 + dim}) 45%, rgba(0,0,0,${0.55 + dim / 2}) 60%, rgba(0,0,0,0.9) 73%, rgba(0,0,0,0.96) 100%)`,
           }}
         />
       )}
