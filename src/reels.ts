@@ -16,17 +16,24 @@ import { pickWeeklyLineup } from "./utils/lineup";
 //   week; in a week with a round premiere anniversary, that film instead,
 //   as an anniversary reel;
 // - weekend: "Weekend w kinie" on Thursday, a line-up from Friday to Sunday;
-// - sunday: "Seans na niedzielę" on Saturday, one film on Sunday.
-export type ReelKind = "classic" | "weekend" | "sunday";
+// - sunday: "Seans na niedzielę" on Saturday, one film on Sunday;
+// - halloween: "Halloween w kinie", once a year on 30 October, a line-up of
+//   horror screenings on Halloween and the day after, in the Halloween theme.
+export type ReelKind = "classic" | "weekend" | "sunday" | "halloween";
 
 export const REEL_SERIES: Record<ReelKind, string> = {
   classic: "Klasyka tygodnia",
   weekend: "Weekend w kinie",
   sunday: "Seans na niedzielę",
+  halloween: "Halloween w kinie",
 };
 
 // Screenings in a line-up reel: few enough that each card can be read.
 const REEL_LINEUP_SIZE = 4;
+// The Halloween line-up runs one card longer: it is the year's only one.
+const HALLOWEEN_LINEUP_SIZE = 5;
+// Genre id of horror in api.klaps.space (/genres).
+const HORROR_GENRE_ID = 5;
 export const MIN_LINEUP_SCREENINGS = 3;
 // A "classic" is at least this old.
 const CLASSIC_MIN_AGE = 25;
@@ -38,7 +45,7 @@ const ANNIVERSARY_WINDOW_DAYS = { before: 3, after: 7 };
 type Anniversary = { years: number; premiere: string };
 
 export type ReelPlan =
-  | { kind: "weekend"; featured: Screening; lineup: Screening[] }
+  | { kind: "weekend" | "halloween"; featured: Screening; lineup: Screening[] }
   | { kind: "classic" | "sunday"; featured: Screening; anniversary?: Anniversary };
 
 const daysBetween = (from: string, to: string): number =>
@@ -80,6 +87,16 @@ export const planReel = async (
     return { kind, featured: candidates[0]!, lineup };
   }
 
+  if (kind === "halloween") {
+    const horrors = candidates.filter((s) =>
+      s.movie.movies_genres?.some((g) => g.genreId === HORROR_GENRE_ID)
+    );
+    const lineup = pickWeeklyLineup(await preferTextlessArt(horrors), HALLOWEEN_LINEUP_SIZE);
+    if (lineup.length < MIN_LINEUP_SCREENINGS) return null;
+    // The reserved screening (and the music's mood) is the best horror.
+    return { kind, featured: horrors[0]!, lineup };
+  }
+
   if (kind === "classic") {
     for (const screening of candidates) {
       const anniversary = findAnniversary(screening, today);
@@ -105,22 +122,28 @@ const formatDayMonth = (screening: Screening): string => {
 // screenings whose cinemas get tagged. With `still`, `video` is a single
 // JPEG frame (previews) instead of the MP4.
 export const renderReelPlan = async (plan: ReelPlan, options: ReelRenderOptions = {}) => {
-  if (plan.kind === "weekend") {
+  if ("lineup" in plan) {
     const { lineup } = plan;
+    const halloween = plan.kind === "halloween";
+    const series = REEL_SERIES[plan.kind];
     const first = formatDayMonth(lineup[0]!);
     const last = formatDayMonth(lineup.at(-1)!);
     const span = first === last ? first : `${first} – ${last}`;
     const count = `${lineup.length} ${pluralSeans(lineup.length)}`;
     const video = await renderLineupReel(
       lineup,
-      [REEL_SERIES.weekend, `${count} · ${span}`],
+      // The Halloween cover carries the series name itself.
+      halloween ? [span, `${count} grozy`] : [series, `${count} · ${span}`],
       plan.featured,
-      options
+      halloween ? { ...options, theme: "halloween" } : options
     );
-    const caption = buildCarouselCaption(
-      lineup,
-      `${REEL_SERIES.weekend}: ${count}, które warto zobaczyć na dużym ekranie`
-    );
+    const caption = halloween
+      ? buildCarouselCaption(
+          lineup,
+          `${series}: ${count} grozy na dużym ekranie. Zamiast przebrania, bilet do kina 🎃`,
+          ["#halloween", "#horror"]
+        )
+      : buildCarouselCaption(lineup, `${series}: ${count}, które warto zobaczyć na dużym ekranie`);
     return { video, caption, tagged: lineup };
   }
 
@@ -156,5 +179,7 @@ export const reelRange = (kind: ReelKind, today: string = todayInPoland()) => {
       return { dateFrom: addDays(today, 1), dateTo: addDays(today, 3) };
     case "sunday":
       return { dateFrom: addDays(today, 1), dateTo: addDays(today, 1) };
+    case "halloween":
+      return { dateFrom: addDays(today, 1), dateTo: addDays(today, 2) };
   }
 };

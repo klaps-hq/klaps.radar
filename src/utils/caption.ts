@@ -84,7 +84,8 @@ export const pluralSeans = (n: number): string => {
 // city tags for every city in it.
 export const buildCarouselCaption = (
   lineup: Screening[],
-  heading = `Tydzień w kinach studyjnych: ${lineup.length} ${pluralSeans(lineup.length)}, które warto zobaczyć na dużym ekranie`
+  heading = `Tydzień w kinach studyjnych: ${lineup.length} ${pluralSeans(lineup.length)}, które warto zobaczyć na dużym ekranie`,
+  extraHashtags: string[] = []
 ): string => {
   const cities = [
     ...new Set(lineup.map((s) => toHashtagSlug(s.cinema.city.name))),
@@ -103,7 +104,7 @@ export const buildCarouselCaption = (
     "Zapisz post, żeby nie przegapić, i oznacz osobę, z którą idziesz.",
     "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
     "",
-    [...BASE_HASHTAGS, ...cities.map((c) => `#kino${c}`)].join(" "),
+    [...BASE_HASHTAGS, ...extraHashtags, ...cities.map((c) => `#kino${c}`)].join(" "),
   ].join("\n");
 };
 
