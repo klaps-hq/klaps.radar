@@ -84,6 +84,7 @@ The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https
 | Reel "Klasyka tygodnia" | `IG_REEL_CLASSIC_CRON` | `30 18 * * 2` | Tue 18:30 (an older film this week, or a premiere anniversary) |
 | Reel "Weekend w kinie" | `IG_REEL_WEEKEND_CRON` | `30 18 * * 4` | Thu 18:30 (line-up Fri-Sun) |
 | Reel "Seans na niedzielę" | `IG_REEL_SUNDAY_CRON` | `30 18 * * 6` | Sat 18:30 (one film on Sunday) |
+| Reel "Halloween w kinie" | `IG_REEL_HALLOWEEN_CRON` | `30 18 30 10 *` | 30 Oct 18:30, yearly (horror line-up for 31 Oct and 1 Nov, Halloween theme) |
 | Instagram carousel | `IG_CAROUSEL_CRON` | `30 11 * * 3`  | Wed 11:30 (weekly line-up) |
 | Facebook post   | `FB_POST_CRON`      | `0 13 * * *`     | 13:00       |
 | Threads post    | `THREADS_POST_CRON` | `30 18 * * *`    | 18:30       |

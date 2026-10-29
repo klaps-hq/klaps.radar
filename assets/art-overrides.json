@@ -3,5 +3,11 @@
     "poster": { "path": "/wvBx1Q1FcQE1BPLfBbgA3y9aaS1.jpg", "focus": { "x": 0.76, "y": 0.3 } },
     "any": { "path": "/wvBx1Q1FcQE1BPLfBbgA3y9aaS1.jpg", "focus": { "x": 0.76, "y": 0.3 } },
     "still": { "path": "/wvBx1Q1FcQE1BPLfBbgA3y9aaS1.jpg", "focus": { "x": 0.76, "y": 0.3 } }
+  },
+  "Krzyk|1996": {
+    "still": { "path": "/n6yxGkajqqscxge6PPmthawvp4B.jpg", "focus": { "x": 0.36, "y": 0.4 } }
+  },
+  "Od zmierzchu do świtu|1996": {
+    "still": { "path": "/rNkNPROzahBymucPyZsVrTLAl3t.jpg", "focus": { "x": 0.5, "y": 0.42 } }
   }
 }
