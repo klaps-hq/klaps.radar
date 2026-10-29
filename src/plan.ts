@@ -13,6 +13,7 @@ import {
   type SocialJob,
 } from "./schedule";
 import type { Platform } from "./types/types";
+import { FEED_PLATFORMS } from "./utils/feed-history";
 import { putPlans, uploadPlanMedia, type PlanInput } from "./utils/plans";
 
 // Planned posts for the admin panel calendar. The slots come from the same
@@ -27,8 +28,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Instagram feed formats share one profile grid, so a movie planned for one
 // is not repeated in another (mirrors the API cooldown group).
-const FEED_GROUP: Platform[] = ["instagram_post", "instagram_reel", "instagram_carousel"];
-const cooldownGroup = (p: Platform): Platform[] => (FEED_GROUP.includes(p) ? FEED_GROUP : [p]);
+const cooldownGroup = (p: Platform): Platform[] => (FEED_PLATFORMS.includes(p) ? FEED_PLATFORMS : [p]);
 
 type Slot = { job: SocialJob; at: Date };
 
@@ -55,7 +55,8 @@ export const runPlanner = async (): Promise<void> => {
 
     // Picks made earlier in this plan: the API only knows published posts,
     // so the plan applies the daily limit and the cooldown itself.
-    const picks: { platform: Platform; movie: string; publishDay: string }[] = [];
+    // `movies` is everything a slot shows (a whole line-up), for the cooldown.
+    const picks: { platform: Platform; movies: string[]; publishDay: string }[] = [];
     const plans: PlanInput[] = [];
     const media = new Map<string, Buffer[]>();
 
@@ -83,7 +84,7 @@ export const runPlanner = async (): Promise<void> => {
       }
 
       const exclude = new Set(
-        picks.filter((p) => cooldownGroup(job.platform).includes(p.platform)).map((p) => p.movie)
+        picks.filter((p) => cooldownGroup(job.platform).includes(p.platform)).flatMap((p) => p.movies)
       );
       try {
         const prepared = await prepareSocialMedia(
@@ -106,7 +107,7 @@ export const runPlanner = async (): Promise<void> => {
         const rendered = await renderSocialMedia(post, { still: true });
         picks.push({
           platform: job.platform,
-          movie: movieKey(post.candidate),
+          movies: [post.candidate, ...rendered.tagged].map(movieKey),
           publishDay,
         });
         plans.push({
