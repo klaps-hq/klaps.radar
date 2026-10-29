@@ -10,8 +10,9 @@ import { getMovieArt } from "./tmdb";
 // Picks the image a card shows for a movie and the point to crop around.
 // 1. Candidates: every usable TMDB image of the requested kind.
 // 2. Heuristic score from cheap measurements (sharpness, contrast, detail,
-//    exposure, a calm bottom for the text, how much survives the crop),
-//    cut-outs rejected.
+//    exposure, a calm bottom for the text, the subject above the text, few
+//    empty areas, how much survives the crop), cut-outs rejected. When no
+//    poster scores well enough, stills join the poster candidates.
 // 3. Gemini looks at the best few and picks the most recognisable one plus
 //    its focal point (usually a face). Optional: without GEMINI_API_KEY, or
 //    on any failure, the heuristic winner is used with an attention crop.
@@ -79,6 +80,55 @@ type Candidate = { path: string; thumb: Buffer; score: number };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
+// The card's title, date and venue cover roughly the bottom third.
+const TEXT_ZONE = 0.35;
+// Below this the best poster is a poor fit (the subject sits under the
+// text, or most of the frame is empty), so stills compete too.
+const MIN_POSTER_SCORE = 0.65;
+
+// Edge energy of a greyscale image on a grid. A light blur first, so film
+// grain and print texture (an empty textured sky on textless key art) do
+// not pass for detail.
+const GRID_COLS = 8;
+const GRID_ROWS = 10;
+// Mean edge energy below which a grid cell counts as empty.
+const EMPTY_CELL = 1.5;
+
+const measureEdges = async (grey: Buffer) => {
+  // Offset 128 keeps the negative half of the Laplacian; toBuffer() so the
+  // numbers come from the filtered pixels (stats() would read the input).
+  const { data, info } = await sharp(grey)
+    .blur(1)
+    .convolve({ width: 3, height: 3, kernel: [0, 1, 0, 1, -4, 1, 0, 1, 0], offset: 128 })
+    .extractChannel(0)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
+  const cells = new Array<number>(GRID_COLS * GRID_ROWS).fill(0);
+  const counts = new Array<number>(GRID_COLS * GRID_ROWS).fill(0);
+  const textTop = height * (1 - TEXT_ZONE);
+  let total = 0;
+  let above = 0;
+  for (let y = 0; y < height; y++) {
+    const row = Math.min(GRID_ROWS - 1, Math.floor((y / height) * GRID_ROWS));
+    for (let x = 0; x < width; x++) {
+      const energy = Math.abs(data[y * width + x]! - 128);
+      const cell = row * GRID_COLS + Math.min(GRID_COLS - 1, Math.floor((x / width) * GRID_COLS));
+      cells[cell]! += energy;
+      counts[cell]! += 1;
+      total += energy;
+      if (y < textTop) above += energy;
+    }
+  }
+  const empty = cells.filter((sum, i) => sum / counts[i]! < EMPTY_CELL).length / cells.length;
+  return {
+    mean: total / (width * height),
+    // Share of the detail above the text zone: where the subject is.
+    aboveText: total ? above / total : 0,
+    empty,
+  };
+};
+
 // Higher is better, roughly 0..1. Measured on a ~400 px thumbnail.
 const scoreImage = async (thumb: Buffer): Promise<number> => {
   if (await isCutout(thumb)) return -1;
@@ -86,25 +136,35 @@ const scoreImage = async (thumb: Buffer): Promise<number> => {
   const { width = 400, height = 400 } = await sharp(small).metadata();
   const grey = await sharp(small).greyscale().toBuffer();
 
-  const edges = await sharp(grey)
-    .convolve({ width: 3, height: 3, kernel: [0, 1, 0, 1, -4, 1, 0, 1, 0] })
-    .stats();
+  const edges = await measureEdges(grey);
   const tones = await sharp(grey).stats();
   const luma = tones.channels[0]!;
   const bottomTop = Math.round(height * 0.7);
-  const bottom = await sharp(grey)
-    .extract({ left: 0, top: bottomTop, width, height: height - bottomTop })
-    .stats();
+  const bottom = await sharp(
+    await sharp(grey).extract({ left: 0, top: bottomTop, width, height: height - bottomTop }).toBuffer()
+  ).stats();
 
-  const sharpness = clamp01(edges.channels[0]!.stdev / 25);
+  const sharpness = clamp01(edges.mean / 6);
   const contrast = clamp01(luma.stdev / 60);
   const detail = clamp01(tones.entropy / 7.5);
   const calmBottom = 1 - clamp01(bottom.channels[0]!.stdev / 70);
+  // Most of the detail should sit above the text, not under it.
+  const subjectHigh = clamp01(edges.aboveText / 0.6);
+  const filled = 1 - clamp01(edges.empty / 0.6);
   const aspect = width / height;
   const kept = aspect > TARGET_ASPECT ? TARGET_ASPECT / aspect : aspect / TARGET_ASPECT;
   const exposure = luma.mean < 35 || luma.mean > 220 ? -0.3 : 0;
 
-  return 0.3 * sharpness + 0.2 * contrast + 0.15 * detail + 0.15 * calmBottom + 0.2 * kept + exposure;
+  return (
+    0.2 * sharpness +
+    0.1 * contrast +
+    0.1 * detail +
+    0.1 * calmBottom +
+    0.2 * subjectHigh +
+    0.15 * filled +
+    0.15 * kept +
+    exposure
+  );
 };
 
 const loadCandidates = async (paths: string[]): Promise<Candidate[]> => {
@@ -193,7 +253,11 @@ const decide = async (movie: Movie, kind: ArtKind): Promise<ArtPick | null> => {
   const cache = await loadCache();
   if (cache[cacheKey]) return cache[cacheKey];
 
-  const candidates = await loadCandidates(await candidatePaths(movie, kind));
+  let candidates = await loadCandidates(await candidatePaths(movie, kind));
+  if (kind === "poster" && (candidates[0]?.score ?? -1) < MIN_POSTER_SCORE) {
+    const stills = await loadCandidates(await candidatePaths(movie, "still"));
+    candidates = [...candidates, ...stills].sort((a, b) => b.score - a.score);
+  }
   const usable = candidates.filter((c) => c.score >= 0);
   const pool = usable.length ? usable : candidates;
   if (!pool.length) return null;
