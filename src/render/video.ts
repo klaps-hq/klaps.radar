@@ -224,11 +224,26 @@ const renderReel = async (
   }
 };
 
+// One frame of a reel for previews (the planned-post calendar): the first
+// scene with its text fully in, as a JPEG - no music, no ffmpeg.
+const renderStill = async (specs: SceneSpec[]): Promise<Buffer> => {
+  const spec = specs[0]!;
+  const scene = spec.make(0, spec.minS);
+  const [base, text] = await Promise.all([renderBase(scene), renderTextLayer(scene, spec.minS * 0.9)]);
+  return sharp(base, { raw: { width: W, height: H, channels: 3 } })
+    .composite([{ input: text, raw: { width: W, height: H, channels: 4 } }])
+    .jpeg({ quality: 88 })
+    .toBuffer();
+};
+
+export type ReelRenderOptions = { still?: boolean };
+
 // Line-up reel: a hook, then one card per screening.
 export const renderLineupReel = async (
   lineup: Screening[],
   hookLines: [string, string],
-  moodSource: Screening
+  moodSource: Screening,
+  options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
   const posters = await Promise.all(lineup.map((s) => fetchReelPosterUrl(s, CARD_SIZE)));
   const specs: SceneSpec[] = [
@@ -238,7 +253,7 @@ export const renderLineupReel = async (
       make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b),
     })),
   ];
-  return renderReel(specs, moodSource, posters.at(-1) ?? null);
+  return options.still ? renderStill(specs) : renderReel(specs, moodSource, posters.at(-1) ?? null);
 };
 
 // Anniversary reel: the round anniversary of a film's premiere over its
@@ -246,25 +261,27 @@ export const renderLineupReel = async (
 export const renderAnniversaryReel = async (
   screening: Screening,
   years: number,
-  premiere: string // YYYY-MM-DD
+  premiere: string, // YYYY-MM-DD
+  options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
   const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
   const specs: SceneSpec[] = [
     { minS: MIN_HOOK_S + 0.4, make: (a, b) => anniversaryHookScene(screening, years, premiere, poster, a, b) },
     { minS: MIN_CARD_S + 0.4, make: (a, b) => screeningCardScene(screening, "Wraca na duży ekran", poster, a, b) },
   ];
-  return renderReel(specs, screening, poster);
+  return options.still ? renderStill(specs) : renderReel(specs, screening, poster);
 };
 
 // Single-film reel for a series ("Klasyka tygodnia", "Seans na niedzielę"):
 // one card over the poster with the film, when and where, then the end card.
 export const renderSpotlightReel = async (
   screening: Screening,
-  series: string
+  series: string,
+  options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
   const poster = await fetchReelPosterUrl(screening, CARD_SIZE);
   const specs: SceneSpec[] = [
     { minS: MIN_HOOK_S + MIN_CARD_S, make: (a, b) => spotlightHookScene(screening, series, poster, a, b) },
   ];
-  return renderReel(specs, screening, poster);
+  return options.still ? renderStill(specs) : renderReel(specs, screening, poster);
 };

@@ -3,6 +3,7 @@ import {
   renderAnniversaryReel,
   renderLineupReel,
   renderSpotlightReel,
+  type ReelRenderOptions,
 } from "./render/video";
 import type { Screening } from "./types/types";
 import { buildCaption, buildCarouselCaption, pluralSeans } from "./utils/caption";
@@ -101,8 +102,9 @@ const formatDayMonth = (screening: Screening): string => {
 };
 
 // Renders the planned reel and writes its caption; `tagged` are the
-// screenings whose cinemas get tagged.
-export const renderReelPlan = async (plan: ReelPlan) => {
+// screenings whose cinemas get tagged. With `still`, `video` is a single
+// JPEG frame (previews) instead of the MP4.
+export const renderReelPlan = async (plan: ReelPlan, options: ReelRenderOptions = {}) => {
   if (plan.kind === "weekend") {
     const { lineup } = plan;
     const first = formatDayMonth(lineup[0]!);
@@ -112,7 +114,8 @@ export const renderReelPlan = async (plan: ReelPlan) => {
     const video = await renderLineupReel(
       lineup,
       [REEL_SERIES.weekend, `${count} · ${span}`],
-      plan.featured
+      plan.featured,
+      options
     );
     const caption = buildCarouselCaption(
       lineup,
@@ -125,7 +128,7 @@ export const renderReelPlan = async (plan: ReelPlan) => {
   const { title, productionYear } = screening.movie;
   if (plan.anniversary) {
     const { years, premiere } = plan.anniversary;
-    const video = await renderAnniversaryReel(screening, years, premiere);
+    const video = await renderAnniversaryReel(screening, years, premiere, options);
     const caption = [
       `${years} lat temu, ${premiere.split("-").reverse().join(".")}, premierę miał film „${title}” (${productionYear}). Wraca na duży ekran:`,
       "",
@@ -135,7 +138,7 @@ export const renderReelPlan = async (plan: ReelPlan) => {
   }
 
   const series = REEL_SERIES[plan.kind];
-  const video = await renderSpotlightReel(screening, series);
+  const video = await renderSpotlightReel(screening, series, options);
   const caption = [
     `${series}: „${title}” (${productionYear})`,
     "",
