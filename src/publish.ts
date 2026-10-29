@@ -21,6 +21,7 @@ import {
   markCandidateAsPublished,
   reserveCandidate,
 } from "./utils/candidate";
+import { FEED_PLATFORMS, recentFeedMovies, recordFeedMovies } from "./utils/feed-history";
 import { truncateText } from "./utils/format";
 import { pickWeeklyLineup } from "./utils/lineup";
 
@@ -119,6 +120,10 @@ export const prepareSocialMedia = async (
 ): Promise<PrepareResult> => {
   const { reelKind, ...query } = config;
   const response = await fetchCandidate({ ...query, platform });
+  // Feed formats also skip every film a recent feed line-up showed.
+  if (FEED_PLATFORMS.includes(platform)) {
+    exclude = new Set([...exclude, ...(await recentFeedMovies())]);
+  }
   const candidates = response.candidates.filter((c) => !exclude.has(movieKey(c)));
   let candidate = candidates[0];
 
@@ -325,6 +330,9 @@ export const createSocialMedia = async (
   const { mediaId, mediaUrl } = await publishToPlatform(post, rendered);
 
   await markCandidateAsPublished(post.candidate.id, platform);
+  if (FEED_PLATFORMS.includes(platform)) {
+    await recordFeedMovies([...new Set([post.candidate, ...rendered.tagged].map(movieKey))]);
+  }
 
   console.log(`Published ${platform} (media ${mediaId}): ${mediaUrl}`);
   return { mediaId, mediaUrl };
