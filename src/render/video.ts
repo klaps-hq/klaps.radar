@@ -15,13 +15,19 @@ import {
   easeInOutSine,
   endScene,
   H,
+  halloweenEndScene,
+  halloweenHookScene,
   hookScene,
+  STRIP_POSTER,
   renderBase,
+  renderMotionLayer,
   renderTextLayer,
   textSignature,
   W,
   type Scene,
+  type Theme,
 } from "./kinetic";
+import { fetchPickedArt } from "../media/pick";
 import { fetchReelPosterUrl } from "./render";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
@@ -38,6 +44,76 @@ const MAX_TAIL_S = 2.5;
 const MIN_TAIL_S = 1.5;
 // Each card dissolves into the next, starting on the beat.
 const DISSOLVE_S = 0.4;
+// Halloween: posters in a warm duotone, and moving film grain (a new
+// pattern every other frame) of this strength, in 8-bit levels.
+// Colour stops of the duotone ramp, from shadows to highlights.
+const DUOTONE_STOPS: [number, [number, number, number]][] = [
+  [0, [6, 2, 2]],
+  [0.35, [92, 20, 8]],
+  [0.7, [240, 112, 30]],
+  [1, [255, 226, 186]],
+];
+const GRAIN = 16;
+const GRAIN_PATTERNS = 4;
+
+// Luminance (0-255) to RGB along the ramp.
+const DUOTONE_LUT = Array.from({ length: 256 }, (_, l) => {
+  const x = l / 255;
+  const i = DUOTONE_STOPS.findIndex(([at]) => at >= x);
+  if (i <= 0) return DUOTONE_STOPS[0]![1];
+  const [a, ca] = DUOTONE_STOPS[i - 1]!;
+  const [b, cb] = DUOTONE_STOPS[i]!;
+  const k = (x - a) / (b - a);
+  return ca.map((c, j) => Math.round(c + (cb[j]! - c) * k)) as [number, number, number];
+});
+
+// A data URL image as a warm duotone: black shadows, blood-red mid
+// shadows, orange mid-tones and pale amber highlights.
+const warmDuotone = async (url: string | null): Promise<string | null> => {
+  if (!url) return null;
+  const image = Buffer.from(url.slice(url.indexOf(",") + 1), "base64");
+  const { data, info } = await sharp(image).greyscale().linear(1.1, -10).raw().toBuffer({ resolveWithObject: true });
+  const rgb = Buffer.allocUnsafe(info.width * info.height * 3);
+  for (let p = 0; p < info.width * info.height; p += 1) {
+    const c = DUOTONE_LUT[data[p * info.channels]!]!;
+    rgb[p * 3] = c[0];
+    rgb[p * 3 + 1] = c[1];
+    rgb[p * 3 + 2] = c[2];
+  }
+  const toned = await sharp(rgb, { raw: { width: info.width, height: info.height, channels: 3 } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${toned.toString("base64")}`;
+};
+
+// Mono noise patterns; a fixed seed keeps renders repeatable.
+const grainPatterns = (): Int8Array[] => {
+  let seed = 0x6b6c6170;
+  const next = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000) * 2 - 1;
+  return Array.from({ length: GRAIN_PATTERNS }, () => {
+    const noise = new Int8Array(W * H);
+    for (let p = 0; p < noise.length; p += 1) noise[p] = Math.round(next() * GRAIN);
+    return noise;
+  });
+};
+
+// The frame dimmed to `level` and with `noise` added, as a new buffer.
+const finishFrame = (frame: Buffer, level: number, noise: Int8Array | null): Buffer => {
+  const out = new Uint8ClampedArray(frame.length);
+  for (let p = 0, i = 0; i < frame.length; p += 1, i += 3) {
+    const n = noise ? noise[p]! : 0;
+    out[i] = frame[i]! * level + n;
+    out[i + 1] = frame[i + 1]! * level + n;
+    out[i + 2] = frame[i + 2]! * level + n;
+  }
+  return Buffer.from(out.buffer);
+};
+
+const flickerLevel = (scene: Scene, t: number): number => {
+  const since = t - scene.start;
+  const hit = scene.flicker?.find((f) => since >= f.at && since < f.at + f.dur);
+  return hit ? hit.level : 1;
+};
 
 // Nearest whole number of beats, but never under 90% of the target, so
 // a slightly slow tempo does not add almost a whole extra beat per card.
@@ -78,7 +154,7 @@ const pickTrack = async (specs: SceneSpec[], mood: Mood, preferred: 0 | 1) => {
   const order: [Mood, 0 | 1][] = [
     [mood, preferred],
     [mood, (1 - preferred) as 0 | 1],
-    ...moods.filter((m) => m !== mood).flatMap((m): [Mood, 0 | 1][] => [[m, 0], [m, 1]]),
+    ...moods.filter((m) => m !== mood && m !== "halloween").flatMap((m): [Mood, 0 | 1][] => [[m, 0], [m, 1]]),
   ];
   let best: { file: string; grid: BeatGrid; room: number } | null = null;
   for (const [m, v] of order) {
@@ -105,7 +181,8 @@ type Timeline = {
 const buildTimeline = (
   specs: SceneSpec[],
   grid: BeatGrid,
-  endImage: string | null
+  endImage: string | null,
+  theme?: Theme
 ): Timeline => {
   const { period, beats, contentS } = planBeats(specs, grid);
   // If even the best track is too short, the music starts at 0 and the end
@@ -121,7 +198,7 @@ const buildTimeline = (
     t += beats[i]! * period;
     scenes.push(spec.make(start, t));
   });
-  scenes.push(endScene(endAt, endAt + tail, endImage));
+  scenes.push(theme ? halloweenEndScene(endAt, endAt + tail) : endScene(endAt, endAt + tail, endImage));
 
   return { scenes, musicStart, total: endAt + tail, endAt };
 };
@@ -141,15 +218,17 @@ const blend = (a: Buffer, b: Buffer, k: number): Buffer => {
 const renderReel = async (
   specs: SceneSpec[],
   moodSource: Screening,
-  endImage: string | null
+  endImage: string | null,
+  theme?: Theme
 ): Promise<Buffer> => {
   const genreIds = (moodSource.movie.movies_genres ?? []).map((g) => g.genreId);
-  const mood = pickMood(genreIds, moodSource.movie.productionYear);
+  const mood = theme === "halloween" ? "halloween" : pickMood(genreIds, moodSource.movie.productionYear);
   const variant = (moodSource.movie.title.length % 2) as 0 | 1;
   const { file: music, grid } = await pickTrack(specs, mood, variant);
-  const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid, endImage);
+  const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid, endImage, theme);
   const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
+  const grain = theme ? grainPatterns() : [];
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
@@ -193,11 +272,16 @@ const renderReel = async (
       }
       const scene = scenes[sceneIndex]!;
 
-      const key = `${sceneIndex}#${textSignature(scene, t)}`;
+      // A scene with motion changes every frame.
+      const key = `${sceneIndex}#${scene.motion ? frame : textSignature(scene, t)}`;
       if (key !== cachedKey) {
-        const text = await renderTextLayer(scene, t);
+        const raw = { width: W, height: H, channels: 4 as const };
+        const layers = [
+          ...(scene.motion ? [{ input: await renderMotionLayer(scene, t), raw }] : []),
+          { input: await renderTextLayer(scene, t), raw },
+        ];
         cachedFrame = await sharp(bases[sceneIndex]!, { raw: { width: W, height: H, channels: 3 } })
-          .composite([{ input: text, raw: { width: W, height: H, channels: 4 } }])
+          .composite(layers)
           .removeAlpha()
           .raw()
           .toBuffer();
@@ -209,7 +293,9 @@ const renderReel = async (
         previousFinal && sceneIndex > 0 && sinceCut < DISSOLVE_S
           ? blend(previousFinal, cachedFrame!, easeInOutSine(sinceCut / DISSOLVE_S))
           : cachedFrame!;
-      proc.stdin.write(out);
+      const level = flickerLevel(scene, t);
+      const noise = grain.length ? grain[Math.floor(frame / 2) % grain.length]! : null;
+      proc.stdin.write(level < 1 || noise ? finishFrame(out, level, noise) : out);
       await proc.stdin.flush();
     }
     await proc.stdin.end();
@@ -236,7 +322,8 @@ const renderStill = async (specs: SceneSpec[]): Promise<Buffer> => {
     .toBuffer();
 };
 
-export type ReelRenderOptions = { still?: boolean };
+// `theme` is the seasonal look of a line-up reel (the Halloween reel).
+export type ReelRenderOptions = { still?: boolean; theme?: Theme };
 
 // Line-up reel: a hook, then one card per screening.
 export const renderLineupReel = async (
@@ -245,15 +332,29 @@ export const renderLineupReel = async (
   moodSource: Screening,
   options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
-  const posters = await Promise.all(lineup.map((s) => fetchReelPosterUrl(s, CARD_SIZE)));
+  const { theme } = options;
+  const tone = (url: string | null) => (theme ? warmDuotone(url) : url);
+  // Themed reels show film stills: posters often carry titles and credits
+  // that clash with the card's own type. Posters remain the fallback.
+  const art = async (s: Screening, box: { width: number; height: number }) =>
+    (theme ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
+  const posters = await Promise.all(lineup.map(async (s) => tone(await art(s, CARD_SIZE))));
+  // The Halloween cover shows the whole line-up as a strip.
+  const strip = theme ? await Promise.all(lineup.map(async (s) => tone(await art(s, STRIP_POSTER)))) : [];
   const specs: SceneSpec[] = [
-    { minS: MIN_HOOK_S, make: (a, b) => hookScene(hookLines, posters[0] ?? null, a, b) },
+    {
+      minS: MIN_HOOK_S,
+      make: (a, b) =>
+        theme ? halloweenHookScene(hookLines, strip, a, b) : hookScene(hookLines, posters[0] ?? null, a, b),
+    },
     ...lineup.map((screening, i): SceneSpec => ({
       minS: MIN_CARD_S,
-      make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b),
+      make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b, options.theme),
     })),
   ];
-  return options.still ? renderStill(specs) : renderReel(specs, moodSource, posters.at(-1) ?? null);
+  return options.still
+    ? renderStill(specs)
+    : renderReel(specs, moodSource, posters.at(-1) ?? null, options.theme);
 };
 
 // Anniversary reel: the round anniversary of a film's premiere over its

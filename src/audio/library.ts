@@ -12,7 +12,9 @@ export type Mood =
   | "romance"
   | "comedy"
   | "epic"
-  | "drama";
+  | "drama"
+  // Only the yearly Halloween reel; never a fallback for other reels.
+  | "halloween";
 
 // Understated, arthouse-leaning beds that suit klaps' calm cards: a clear
 // but soft pulse to change cards on, and a real ending (a final chord or
@@ -50,6 +52,10 @@ export const MUSIC_PROMPTS: Record<Mood, [string, string]> = {
   epic: [
     `cinematic string ostinato with soft taiko pulse, noble and restrained, ${MUSIC_STYLE}`,
     `wide western guitar, slow galloping rhythm, open landscape, ${MUSIC_STYLE}`,
+  ],
+  halloween: [
+    `playful spooky Halloween theme, theremin melody over harpsichord and pizzicato strings, ticking clock percussion and soft kick, eerie but fun, ${MUSIC_STYLE}`,
+    `dark carnival waltz, celesta and music box melody, low church organ, distant tolling bell, heartbeat kick drum, haunted house mood, ${MUSIC_STYLE}`,
   ],
   drama: [
     `felt piano and cello, minimal and intimate, soft pulse, ${MUSIC_STYLE}`,
