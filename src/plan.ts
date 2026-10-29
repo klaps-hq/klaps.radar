@@ -54,8 +54,8 @@ export const runPlanner = async (): Promise<void> => {
     const until = new Date(now.getTime() + CALENDAR_DAYS * DAY_MS);
 
     // Picks made earlier in this plan: the API only knows published posts,
-    // so the plan applies its dedupe (posts per range) and cooldown itself.
-    const picks: { platform: Platform; movie: string; screeningDay: string }[] = [];
+    // so the plan applies the daily limit and the cooldown itself.
+    const picks: { platform: Platform; movie: string; publishDay: string }[] = [];
     const plans: PlanInput[] = [];
     const media = new Map<string, Buffer[]>();
 
@@ -72,12 +72,13 @@ export const runPlanner = async (): Promise<void> => {
         continue;
       }
 
-      const range = jobRange(job, polishDay(at));
-      const inRange = picks.filter(
-        (p) => p.platform === job.platform && p.screeningDay >= range.dateFrom && p.screeningDay <= range.dateTo
-      ).length;
-      if (inRange >= (job.maxPosts ?? 1)) {
-        plans.push({ ...base, status: "skipped", reason: "ALREADY_PUBLISHED (earlier slot of this plan)" });
+      // Same daily limit as the API: posts of the platform published on the
+      // slot's day (the API counts real posts, the plan its earlier picks).
+      const publishDay = polishDay(at);
+      const range = jobRange(job, publishDay);
+      const sameDay = picks.filter((p) => p.platform === job.platform && p.publishDay === publishDay).length;
+      if (sameDay >= (job.maxPosts ?? 1)) {
+        plans.push({ ...base, status: "skipped", reason: "ALREADY_PUBLISHED (daily limit used by earlier slots)" });
         continue;
       }
 
@@ -87,7 +88,14 @@ export const runPlanner = async (): Promise<void> => {
       try {
         const prepared = await prepareSocialMedia(
           job.platform,
-          { ...range, minScore: 30, numberOfCandidates: 30, maxPosts: job.maxPosts, reelKind: job.reelKind },
+          {
+            ...range,
+            minScore: 30,
+            numberOfCandidates: 30,
+            maxPosts: job.maxPosts,
+            reelKind: job.reelKind,
+            publishDay,
+          },
           exclude
         );
         if (!prepared.ok) {
@@ -99,7 +107,7 @@ export const runPlanner = async (): Promise<void> => {
         picks.push({
           platform: job.platform,
           movie: movieKey(post.candidate),
-          screeningDay: post.candidate.date.slice(0, 10),
+          publishDay,
         });
         plans.push({
           ...base,

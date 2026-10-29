@@ -26,6 +26,8 @@ export const fetchCandidate = async (
     params.set("maxPosts", String(config.maxPosts));
   }
 
+  if (config.publishDay) params.set("publishDay", config.publishDay);
+
   const url = `${API_URL}/socials/candidate?${params.toString()}`;
 
   if (!INTERNAL_API_KEY) {
