@@ -173,10 +173,9 @@ const fetchScreeningImage = async (
   size?: string
 ): Promise<string | null> => {
   const portrait = box.height > box.width;
-  if (portrait) {
-    const picked = await fetchPickedArt(screening.movie, "any", box, size);
-    if (picked) return picked;
-  }
+  // Landscape slots (carousel cover strips) take stills, portrait cards any art.
+  const picked = await fetchPickedArt(screening.movie, portrait ? "any" : "still", box, size);
+  if (picked) return picked;
   const fallback = getScreeningImagePath(screening);
   const image = portrait
     ? await fetchKeyArt(screening, [fallback, screening.movie.backdropUrl], size)
