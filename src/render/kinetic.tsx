@@ -39,7 +39,7 @@ const SMALL_SHADOW = "0 2px 12px rgba(0,0,0,0.6)";
 // and the address; the Halloween cover, warm duotone, grain and flicker,
 // and the 11 November map cover are below and in src/render/video.ts.
 export type Theme = "halloween" | "independence";
-export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a", independence: "#dc143c" };
+export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a", independence: "#ff3347" };
 
 export const LINE_FADE_S = 0.5;
 export const LINE_STAGGER_S = 0.07;
@@ -468,15 +468,18 @@ export const cardScene = (
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
   const eyebrow = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
+  // Over posters the 11 November red gets lost, so its cards keep the
+  // regular white lines; the red stays on the map pins.
+  const accent = theme === "halloween" ? theme : undefined;
   return {
     start,
     end,
     textAt: start + TEXT_DELAY_S,
     base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} pin={pin} />,
     lines: [
-      <Eyebrow key="e" text={eyebrow} theme={theme} />,
+      <Eyebrow key="e" text={eyebrow} theme={accent} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
-      <Rule key="r" theme={theme} />,
+      <Rule key="r" theme={accent} />,
       <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,
       <Small key="s" text={cinema.name} />,
     ],
