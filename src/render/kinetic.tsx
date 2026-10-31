@@ -35,10 +35,10 @@ const FAINT = "rgba(255,255,255,0.6)";
 const SMALL_SHADOW = "0 2px 12px rgba(0,0,0,0.6)";
 
 // Seasonal look of a reel. Here: the accent of the small lines, the rule
-// and the address; the cover, the warm duotone, the grain and the flicker
-// are in the Halloween hook below and in src/render/video.ts.
-export type Theme = "halloween";
-export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a" };
+// and the address, and the cover; the warm duotone, the grain and the
+// Halloween end card are in src/render/video.ts.
+export type Theme = "halloween" | "independence";
+export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a", independence: "#dc143c" };
 
 export const LINE_FADE_S = 0.5;
 export const LINE_STAGGER_S = 0.07;
@@ -244,10 +244,13 @@ export const hookScene = (
   ],
 });
 
-// Halloween cover: no poster behind it, the word itself across the whole
+// Themed cover: no poster behind it, the theme's word across the whole
 // card in the accent, the line-up's posters fanned out below it, and the
-// dates in the usual text block. The frame flickers as it opens.
-const HALLOWEEN_SIZE = 206;
+// dates in the usual text block. The Halloween frame flickers as it opens.
+const COVER: Record<Theme, { word: string; size: number; eyebrow: string }> = {
+  halloween: { word: "HALLOWEEN", size: 206, eyebrow: "Noc grozy w kinach studyjnych" },
+  independence: { word: "11 LISTOPADA", size: 182, eyebrow: "Polskie kino w kinach studyjnych" },
+};
 const STRIP_TOP = 640;
 export const STRIP_POSTER = { width: 250, height: 375 };
 // Posters overlap so five fit the card's width; odd ones sit lower.
@@ -260,7 +263,7 @@ const HOOK_FLICKER = [
   { at: 1.35, dur: 0.1, level: 0.2 },
 ];
 
-const HalloweenCover = ({ posters }: { posters: (string | null)[] }) => (
+const ThemeCover = ({ theme, posters }: { theme: Theme; posters: (string | null)[] }) => (
   <div style={{ width: W, height: H, display: "flex", position: "relative", backgroundColor: "#000000", color: "#ffffff", fontFamily: "Inter" }}>
     <div
       style={{
@@ -284,12 +287,12 @@ const HalloweenCover = ({ posters }: { posters: (string | null)[] }) => (
         left: CARD.x + PAD - 6,
         top: HEADER_TOP + 70,
         fontFamily: "Anton",
-        fontSize: HALLOWEEN_SIZE,
+        fontSize: COVER[theme].size,
         lineHeight: 1,
-        color: ACCENT.halloween,
+        color: ACCENT[theme],
       }}
     >
-      HALLOWEEN
+      {COVER[theme].word}
     </span>
     {posters.slice(0, 5).map((src, i) => {
       const style = {
@@ -312,7 +315,8 @@ const HalloweenCover = ({ posters }: { posters: (string | null)[] }) => (
   </div>
 );
 
-export const halloweenHookScene = (
+export const themeHookScene = (
+  theme: Theme,
   lines: [string, string],
   posters: (string | null)[],
   start: number,
@@ -321,12 +325,12 @@ export const halloweenHookScene = (
   start,
   end,
   textAt: start + TEXT_DELAY_S,
-  flicker: HOOK_FLICKER,
-  base: <HalloweenCover posters={posters} />,
+  flicker: theme === "halloween" ? HOOK_FLICKER : undefined,
+  base: <ThemeCover theme={theme} posters={posters} />,
   lines: [
-    <Eyebrow key="e" text="Noc grozy w kinach studyjnych" theme="halloween" />,
+    <Eyebrow key="e" text={COVER[theme].eyebrow} theme={theme} />,
     <Title key="t" text={lines[0]} size={104} />,
-    <Rule key="r" theme="halloween" />,
+    <Rule key="r" theme={theme} />,
     <Big key="b" text={lines[1]} />,
   ],
 });

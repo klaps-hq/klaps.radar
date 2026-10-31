@@ -18,22 +18,27 @@ import { pickWeeklyLineup } from "./utils/lineup";
 // - weekend: "Weekend w kinie" on Thursday, a line-up from Friday to Sunday;
 // - sunday: "Seans na niedzielę" on Saturday, one film on Sunday;
 // - halloween: "Halloween w kinie", once a year on 30 October, a line-up of
-//   horror screenings on Halloween and the day after, in the Halloween theme.
-export type ReelKind = "classic" | "weekend" | "sunday" | "halloween";
+//   horror screenings on Halloween and the day after, in the Halloween theme;
+// - independence: "11 listopada w kinie", once a year two days before
+//   11 November, a line-up of Polish films around the holiday.
+export type ReelKind = "classic" | "weekend" | "sunday" | "halloween" | "independence";
 
 export const REEL_SERIES: Record<ReelKind, string> = {
   classic: "Klasyka tygodnia",
   weekend: "Weekend w kinie",
   sunday: "Seans na niedzielę",
   halloween: "Halloween w kinie",
+  independence: "11 listopada w kinie",
 };
 
 // Screenings in a line-up reel: few enough that each card can be read.
 const REEL_LINEUP_SIZE = 4;
-// The Halloween line-up runs one card longer: it is the year's only one.
-const HALLOWEEN_LINEUP_SIZE = 5;
+// The yearly line-ups run one card longer: each is the year's only one.
+const THEMED_LINEUP_SIZE = 5;
 // Genre id of horror in api.klaps.space (/genres).
 const HORROR_GENRE_ID = 5;
+const isPolish = (s: Screening) =>
+  s.movie.movies_countries?.some((c) => c.country.countryCode === "PL") ?? false;
 export const MIN_LINEUP_SCREENINGS = 3;
 // A "classic" is at least this old.
 const CLASSIC_MIN_AGE = 25;
@@ -45,7 +50,7 @@ const ANNIVERSARY_WINDOW_DAYS = { before: 3, after: 7 };
 type Anniversary = { years: number; premiere: string };
 
 export type ReelPlan =
-  | { kind: "weekend" | "halloween"; featured: Screening; lineup: Screening[] }
+  | { kind: "weekend" | "halloween" | "independence"; featured: Screening; lineup: Screening[] }
   | { kind: "classic" | "sunday"; featured: Screening; anniversary?: Anniversary };
 
 const daysBetween = (from: string, to: string): number =>
@@ -87,14 +92,16 @@ export const planReel = async (
     return { kind, featured: candidates[0]!, lineup };
   }
 
-  if (kind === "halloween") {
-    const horrors = candidates.filter((s) =>
-      s.movie.movies_genres?.some((g) => g.genreId === HORROR_GENRE_ID)
+  if (kind === "halloween" || kind === "independence") {
+    const pool = candidates.filter((s) =>
+      kind === "halloween"
+        ? s.movie.movies_genres?.some((g) => g.genreId === HORROR_GENRE_ID)
+        : isPolish(s)
     );
-    const lineup = pickWeeklyLineup(await preferTextlessArt(horrors), HALLOWEEN_LINEUP_SIZE);
+    const lineup = pickWeeklyLineup(await preferTextlessArt(pool), THEMED_LINEUP_SIZE);
     if (lineup.length < MIN_LINEUP_SCREENINGS) return null;
-    // The reserved screening (and the music's mood) is the best horror.
-    return { kind, featured: horrors[0]!, lineup };
+    // The reserved screening (and the music's mood) is the best of the pool.
+    return { kind, featured: pool[0]!, lineup };
   }
 
   if (kind === "classic") {
@@ -124,7 +131,7 @@ const formatDayMonth = (screening: Screening): string => {
 export const renderReelPlan = async (plan: ReelPlan, options: ReelRenderOptions = {}) => {
   if ("lineup" in plan) {
     const { lineup } = plan;
-    const halloween = plan.kind === "halloween";
+    const theme = plan.kind === "weekend" ? undefined : plan.kind;
     const series = REEL_SERIES[plan.kind];
     const first = formatDayMonth(lineup[0]!);
     const last = formatDayMonth(lineup.at(-1)!);
@@ -132,18 +139,29 @@ export const renderReelPlan = async (plan: ReelPlan, options: ReelRenderOptions 
     const count = `${lineup.length} ${pluralSeans(lineup.length)}`;
     const video = await renderLineupReel(
       lineup,
-      // The Halloween cover carries the series name itself.
-      halloween ? [span, `${count} grozy`] : [series, `${count} · ${span}`],
+      // A themed cover carries the series name itself.
+      theme === "halloween"
+        ? [span, `${count} grozy`]
+        : theme === "independence"
+          ? [span, `${count} polskiego kina`]
+          : [series, `${count} · ${span}`],
       plan.featured,
-      halloween ? { ...options, theme: "halloween" } : options
+      { ...options, theme }
     );
-    const caption = halloween
-      ? buildCarouselCaption(
-          lineup,
-          `${series}: ${count} grozy na dużym ekranie. Zamiast przebrania, bilet do kina 🎃`,
-          ["#halloween", "#horror"]
-        )
-      : buildCarouselCaption(lineup, `${series}: ${count}, które warto zobaczyć na dużym ekranie`);
+    const caption =
+      theme === "halloween"
+        ? buildCarouselCaption(
+            lineup,
+            `${series}: ${count} grozy na dużym ekranie. Zamiast przebrania, bilet do kina 🎃`,
+            ["#halloween", "#horror"]
+          )
+        : theme === "independence"
+          ? buildCarouselCaption(
+              lineup,
+              `${series}: ${count} polskiego kina na dużym ekranie. Świętuj z polskim filmem 🇵🇱`,
+              ["#11listopada", "#polskiekino"]
+            )
+          : buildCarouselCaption(lineup, `${series}: ${count}, które warto zobaczyć na dużym ekranie`);
     return { video, caption, tagged: lineup };
   }
 
@@ -181,5 +199,8 @@ export const reelRange = (kind: ReelKind, today: string = todayInPoland()) => {
       return { dateFrom: addDays(today, 1), dateTo: addDays(today, 1) };
     case "halloween":
       return { dateFrom: addDays(today, 1), dateTo: addDays(today, 2) };
+    // Published on 9 November: the eve of the holiday, the day and the day after.
+    case "independence":
+      return { dateFrom: addDays(today, 1), dateTo: addDays(today, 3) };
   }
 };

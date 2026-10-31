@@ -29,6 +29,8 @@ type ScreeningMovie = {
   worldPremiereDate?: string | null;
   // Genre links as returned by the API; only genreId is used (reel music).
   movies_genres?: { genreId: number }[];
+  // Production countries (ISO codes); the 11 November reel picks Polish films.
+  movies_countries?: { country: { countryCode: string } }[];
   description: string | null;
   productionYear: number;
   duration: number | null;

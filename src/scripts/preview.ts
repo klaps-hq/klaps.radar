@@ -86,14 +86,16 @@ const REEL_DAYS: [ReelKind, number][] = [
   ["sunday", 6],
 ];
 
-// The Halloween reel is previewed only with live data: the sample has no horror.
-if (process.argv.includes("--live")) REEL_DAYS.push(["halloween", -1]);
+// The yearly reels are previewed only with live data: the sample has no
+// horror and no production countries.
+const YEARLY_DAYS: Partial<Record<ReelKind, string>> = { halloween: "10-30", independence: "11-09" };
+if (process.argv.includes("--live")) REEL_DAYS.push(["halloween", -1], ["independence", -1]);
 
 const renderReels = async (fallback: Screening[]) => {
   const live = process.argv.includes("--live");
   const out: { kind: ReelKind; day: string; caption: string; size: number }[] = [];
   for (const [kind, dow] of REEL_DAYS) {
-    const day = dow < 0 ? `${today.slice(0, 4)}-10-30` : nextWeekday(today, dow);
+    const day = dow < 0 ? `${today.slice(0, 4)}-${YEARLY_DAYS[kind]}` : nextWeekday(today, dow);
     const range = reelRange(kind, day);
     const candidates = live
       ? (

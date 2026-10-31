@@ -16,9 +16,9 @@ import {
   endScene,
   H,
   halloweenEndScene,
-  halloweenHookScene,
   hookScene,
   STRIP_POSTER,
+  themeHookScene,
   renderBase,
   renderMotionLayer,
   renderTextLayer,
@@ -198,7 +198,7 @@ const buildTimeline = (
     t += beats[i]! * period;
     scenes.push(spec.make(start, t));
   });
-  scenes.push(theme ? halloweenEndScene(endAt, endAt + tail) : endScene(endAt, endAt + tail, endImage));
+  scenes.push(theme === "halloween" ? halloweenEndScene(endAt, endAt + tail) : endScene(endAt, endAt + tail, endImage));
 
   return { scenes, musicStart, total: endAt + tail, endAt };
 };
@@ -228,7 +228,7 @@ const renderReel = async (
   const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid, endImage, theme);
   const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
-  const grain = theme ? grainPatterns() : [];
+  const grain = theme === "halloween" ? grainPatterns() : [];
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
@@ -322,7 +322,7 @@ const renderStill = async (specs: SceneSpec[]): Promise<Buffer> => {
     .toBuffer();
 };
 
-// `theme` is the seasonal look of a line-up reel (the Halloween reel).
+// `theme` is the seasonal look of a line-up reel (Halloween, 11 November).
 export type ReelRenderOptions = { still?: boolean; theme?: Theme };
 
 // Line-up reel: a hook, then one card per screening.
@@ -333,19 +333,19 @@ export const renderLineupReel = async (
   options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
   const { theme } = options;
-  const tone = (url: string | null) => (theme ? warmDuotone(url) : url);
+  const tone = (url: string | null) => (theme === "halloween" ? warmDuotone(url) : url);
   // Themed reels show film stills: posters often carry titles and credits
   // that clash with the card's own type. Posters remain the fallback.
   const art = async (s: Screening, box: { width: number; height: number }) =>
     (theme ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
   const posters = await Promise.all(lineup.map(async (s) => tone(await art(s, CARD_SIZE))));
-  // The Halloween cover shows the whole line-up as a strip.
+  // The themed cover shows the whole line-up as a strip.
   const strip = theme ? await Promise.all(lineup.map(async (s) => tone(await art(s, STRIP_POSTER)))) : [];
   const specs: SceneSpec[] = [
     {
       minS: MIN_HOOK_S,
       make: (a, b) =>
-        theme ? halloweenHookScene(hookLines, strip, a, b) : hookScene(hookLines, posters[0] ?? null, a, b),
+        theme ? themeHookScene(theme, hookLines, strip, a, b) : hookScene(hookLines, posters[0] ?? null, a, b),
     },
     ...lineup.map((screening, i): SceneSpec => ({
       minS: MIN_CARD_S,
