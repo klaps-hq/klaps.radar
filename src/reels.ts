@@ -143,7 +143,7 @@ export const renderReelPlan = async (plan: ReelPlan, options: ReelRenderOptions 
       theme === "halloween"
         ? [span, `${count} grozy`]
         : theme === "independence"
-          ? [span, `${count} polskiego kina`]
+          ? ["11 listopada", `${span} · ${count}`]
           : [series, `${count} · ${span}`],
       plan.featured,
       { ...options, theme }

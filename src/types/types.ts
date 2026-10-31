@@ -20,6 +20,9 @@ type ScreeningCinema = {
   instagramUsername?: string | null;
   instagramCollab?: boolean;
   facebookPlaceId?: string | null;
+  // Location; the 11 November reel puts each cinema on a map.
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 type ScreeningMovie = {
