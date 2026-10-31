@@ -18,6 +18,8 @@ import {
   halloweenEndScene,
   halloweenHookScene,
   hookScene,
+  mapHookScene,
+  type MapPin,
   STRIP_POSTER,
   renderBase,
   renderMotionLayer,
@@ -38,6 +40,8 @@ const MUSIC_GAIN = 0.9;
 // read after its lines have faded up.
 const MIN_HOOK_S = 2.0;
 const MIN_CARD_S = 2.4;
+// The map cover holds until all its pins have dropped in.
+const MIN_MAP_HOOK_S = 3.0;
 const MIN_BEATS = 2;
 // The end card holds the music's tail after the final hit, up to this long.
 const MAX_TAIL_S = 2.5;
@@ -198,7 +202,7 @@ const buildTimeline = (
     t += beats[i]! * period;
     scenes.push(spec.make(start, t));
   });
-  scenes.push(theme ? halloweenEndScene(endAt, endAt + tail) : endScene(endAt, endAt + tail, endImage));
+  scenes.push(theme === "halloween" ? halloweenEndScene(endAt, endAt + tail) : endScene(endAt, endAt + tail, endImage));
 
   return { scenes, musicStart, total: endAt + tail, endAt };
 };
@@ -228,7 +232,7 @@ const renderReel = async (
   const { scenes, musicStart, total, endAt } = buildTimeline(specs, grid, endImage, theme);
   const bases = await Promise.all(scenes.map(renderBase));
   const frames = Math.round(total * FPS);
-  const grain = theme ? grainPatterns() : [];
+  const grain = theme === "halloween" ? grainPatterns() : [];
 
   const dir = await mkdtemp(join(tmpdir(), "klaps-reel-"));
   try {
@@ -322,7 +326,10 @@ const renderStill = async (specs: SceneSpec[]): Promise<Buffer> => {
     .toBuffer();
 };
 
-// `theme` is the seasonal look of a line-up reel (the Halloween reel).
+const cinemaPin = ({ cinema }: Screening): MapPin | undefined =>
+  cinema.longitude != null && cinema.latitude != null ? { lon: cinema.longitude, lat: cinema.latitude } : undefined;
+
+// `theme` is the seasonal look of a line-up reel (Halloween, 11 November).
 export type ReelRenderOptions = { still?: boolean; theme?: Theme };
 
 // Line-up reel: a hook, then one card per screening.
@@ -333,23 +340,34 @@ export const renderLineupReel = async (
   options: ReelRenderOptions = {}
 ): Promise<Buffer> => {
   const { theme } = options;
-  const tone = (url: string | null) => (theme ? warmDuotone(url) : url);
-  // Themed reels show film stills: posters often carry titles and credits
-  // that clash with the card's own type. Posters remain the fallback.
+  const tone = (url: string | null) => (theme === "halloween" ? warmDuotone(url) : url);
+  // The Halloween reel shows film stills under its duotone. The 11 November
+  // reel keeps posters: stills of older Polish films are often grainy TV
+  // grabs that look poor full-screen. Posters remain the fallback.
   const art = async (s: Screening, box: { width: number; height: number }) =>
-    (theme ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
+    (theme === "halloween" ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
   const posters = await Promise.all(lineup.map(async (s) => tone(await art(s, CARD_SIZE))));
   // The Halloween cover shows the whole line-up as a strip.
-  const strip = theme ? await Promise.all(lineup.map(async (s) => tone(await art(s, STRIP_POSTER)))) : [];
+  const strip = theme === "halloween" ? await Promise.all(lineup.map(async (s) => tone(await art(s, STRIP_POSTER)))) : [];
+  // 11 November: each cinema as a pin on the map of Poland.
+  const pins = lineup.map(cinemaPin);
+  const coverPins = pins.filter(
+    (p, i): p is MapPin => p !== undefined && pins.findIndex((q) => q?.lon === p.lon && q?.lat === p.lat) === i
+  );
   const specs: SceneSpec[] = [
     {
-      minS: MIN_HOOK_S,
+      minS: theme === "independence" ? MIN_MAP_HOOK_S : MIN_HOOK_S,
       make: (a, b) =>
-        theme ? halloweenHookScene(hookLines, strip, a, b) : hookScene(hookLines, posters[0] ?? null, a, b),
+        theme === "halloween"
+          ? halloweenHookScene(hookLines, strip, a, b)
+          : theme === "independence"
+            ? mapHookScene(hookLines, coverPins, a, b)
+            : hookScene(hookLines, posters[0] ?? null, a, b),
     },
     ...lineup.map((screening, i): SceneSpec => ({
       minS: MIN_CARD_S,
-      make: (a, b) => cardScene(screening, i, lineup.length, posters[i] ?? null, a, b, options.theme),
+      make: (a, b) =>
+        cardScene(screening, i, lineup.length, posters[i] ?? null, a, b, theme, theme === "independence" ? pins[i] : undefined),
     })),
   ];
   return options.still
