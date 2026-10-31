@@ -3,6 +3,7 @@ import sharp from "sharp";
 import type { Screening } from "../types/types";
 import { formatDuration, formatPolishDate, splitScreeningDate } from "../utils/format";
 import { loadFonts } from "./render";
+import { HALFTONE, MAP_VIEW, project } from "./poland";
 import { DISPLAY_LINE_HEIGHT, EYEBROW_GAP } from "./template";
 
 // Line-up reel frames in klaps' own visual language, the same as the post
@@ -35,10 +36,10 @@ const FAINT = "rgba(255,255,255,0.6)";
 const SMALL_SHADOW = "0 2px 12px rgba(0,0,0,0.6)";
 
 // Seasonal look of a reel. Here: the accent of the small lines, the rule
-// and the address; the cover, the warm duotone, the grain and the flicker
-// are in the Halloween hook below and in src/render/video.ts.
-export type Theme = "halloween";
-export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a" };
+// and the address; the Halloween cover, warm duotone, grain and flicker,
+// and the 11 November map cover are below and in src/render/video.ts.
+export type Theme = "halloween" | "independence";
+export const ACCENT: Record<Theme, string> = { halloween: "#ff7a1a", independence: "#ff3347" };
 
 export const LINE_FADE_S = 0.5;
 export const LINE_STAGGER_S = 0.07;
@@ -145,11 +146,13 @@ const CardBase = ({
   meta,
   dim = 0,
   header = true,
+  pin,
 }: {
   imageUrl: string | null;
   meta?: string; // header right: counter and city
   dim?: number;
   header?: boolean;
+  pin?: MapPin; // the screening's place on a small map under the header
 }) => (
   <div
     style={{
@@ -218,8 +221,129 @@ const CardBase = ({
       )}
     </div>
     )}
+    {pin && (
+      // A dark plate under the map keeps it readable on bright posters.
+      <div
+        style={{
+          position: "absolute",
+          right: CARD.x + PAD,
+          top: HEADER_TOP + 56,
+          display: "flex",
+          padding: 18,
+          borderRadius: 16,
+          backgroundColor: "rgba(0,0,0,0.62)",
+        }}
+      >
+        <PolandMap width={MINI_MAP_WIDTH} dot={0.034} dotColor="rgba(255,255,255,0.55)">
+          {Pin({ pin, r: 0.22 })}
+        </PolandMap>
+      </div>
+    )}
   </div>
 );
+
+// --- 11 November map -----------------------------------------------------------
+
+export type MapPin = { lon: number; lat: number };
+
+const MINI_MAP_WIDTH = 200;
+// The cover map, centred between the header and the text block.
+const COVER_MAP = { width: 640, top: 400 };
+// Pins drop in one after another once the cover is up.
+const PIN_START_S = 0.35;
+const PIN_STAGGER_S = 0.18;
+const PIN_POP_S = 0.35;
+
+const PolandMap = ({
+  width,
+  dot,
+  dotColor,
+  children,
+}: {
+  width: number;
+  dot: number;
+  dotColor: string;
+  children?: React.ReactNode;
+}) => (
+  <svg
+    width={width}
+    height={Math.round((width * MAP_VIEW.height) / MAP_VIEW.width)}
+    viewBox={`0 0 ${MAP_VIEW.width} ${MAP_VIEW.height}`}
+  >
+    {HALFTONE.map(([x, y], i) => (
+      <circle key={i} cx={x} cy={y} r={dot} fill={dotColor} />
+    ))}
+    {children}
+  </svg>
+);
+
+// A red dot with a ring; `k` scales it while it pops in. Called as a
+// function: inside an <svg> satori renders only plain SVG elements.
+const Pin = ({ pin, r, k = 1 }: { pin: MapPin; r: number; k?: number }) => {
+  const [x, y] = project(pin.lon, pin.lat);
+  return (
+    <g>
+      <circle cx={x} cy={y} r={r * 2 * k} fill="none" stroke={ACCENT.independence} strokeOpacity={0.5} strokeWidth={0.02} />
+      <circle cx={x} cy={y} r={r * k} fill={ACCENT.independence} />
+    </g>
+  );
+};
+
+// The cover: the country as white dots on the black card; the pins of the
+// line-up's cinemas are the motion layer.
+const MapCover = () => (
+  <div style={{ width: W, height: H, display: "flex", position: "relative", backgroundColor: "#000000", color: "#ffffff", fontFamily: "Inter" }}>
+    <div
+      style={{
+        position: "absolute",
+        left: CARD.x,
+        top: CARD.y,
+        width: CARD.width,
+        height: CARD.height,
+        display: "flex",
+        borderRadius: CARD.radius,
+        backgroundColor: "#0a0a0a",
+        border: "1px solid rgba(255,255,255,0.12)",
+      }}
+    />
+    <div style={{ position: "absolute", left: CARD.x + PAD, top: HEADER_TOP, display: "flex" }}>
+      <Logo size={36} />
+    </div>
+    <div style={{ position: "absolute", left: (W - COVER_MAP.width) / 2, top: COVER_MAP.top, display: "flex" }}>
+      <PolandMap width={COVER_MAP.width} dot={0.026} dotColor="rgba(255,255,255,0.28)" />
+    </div>
+  </div>
+);
+
+const MapPins = ({ pins, since }: { pins: MapPin[]; since: number }) => (
+  <div style={{ position: "absolute", left: (W - COVER_MAP.width) / 2, top: COVER_MAP.top, display: "flex" }}>
+    <PolandMap width={COVER_MAP.width} dot={0} dotColor="transparent">
+      {pins.map((pin, i) => {
+        const k = easeOutCubic((since - PIN_START_S - i * PIN_STAGGER_S) / PIN_POP_S);
+        return k > 0 ? <g key={i}>{Pin({ pin, r: 0.09, k })}</g> : null;
+      })}
+    </PolandMap>
+  </div>
+);
+
+export const mapHookScene = (
+  lines: [string, string],
+  pins: MapPin[],
+  start: number,
+  end: number
+): Scene => ({
+  start,
+  end,
+  textAt: start + TEXT_DELAY_S,
+  base: <MapCover />,
+  motion: (since) => <MapPins pins={pins} since={since} />,
+  lines: [
+    <Eyebrow key="e" text="Polskie kino w kinach studyjnych" theme="independence" />,
+    <Title key="t" text={lines[0]} size={124} />,
+    <Rule key="r" theme="independence" />,
+    <Big key="b" text={lines[1]} />,
+  ],
+});
 
 // --- Scenes ------------------------------------------------------------------
 
@@ -338,20 +462,24 @@ export const cardScene = (
   imageUrl: string | null,
   start: number,
   end: number,
-  theme?: Theme
+  theme?: Theme,
+  pin?: MapPin
 ): Scene => {
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
   const eyebrow = [movie.productionYear, formatDuration(movie.duration)].filter(Boolean).join(" · ");
+  // Over posters the 11 November red gets lost, so its cards keep the
+  // regular white lines; the red stays on the map pins.
+  const accent = theme === "halloween" ? theme : undefined;
   return {
     start,
     end,
     textAt: start + TEXT_DELAY_S,
-    base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} />,
+    base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} pin={pin} />,
     lines: [
-      <Eyebrow key="e" text={eyebrow} theme={theme} />,
+      <Eyebrow key="e" text={eyebrow} theme={accent} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
-      <Rule key="r" theme={theme} />,
+      <Rule key="r" theme={accent} />,
       <Big key="b" text={`${formatPolishDate(date)}${time ? ` · ${time}` : ""}`} />,
       <Small key="s" text={cinema.name} />,
     ],

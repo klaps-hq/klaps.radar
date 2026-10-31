@@ -35,7 +35,7 @@ const always = () => true;
 // the weekly line-up carousel on Wednesday, ahead of the weekend.
 // Reel series: "Klasyka tygodnia" on Tuesday, "Weekend w kinie" on
 // Thursday, "Seans na niedzielę" on Saturday (src/reels.ts), plus the yearly
-// "Halloween w kinie" on 30 October.
+// "Halloween w kinie" on 30 October and "11 listopada w kinie" on 9 November.
 export const SOCIAL_JOBS: SocialJob[] = [
   { platform: "instagram_post", format: "Post IG", cron: process.env.IG_POST_CRON || "30 11 * * 0,1,5", daysAhead: 6, enabled: always },
   { platform: "instagram_reel", format: "Reel · Klasyka tygodnia", cron: process.env.IG_REEL_CLASSIC_CRON || "30 18 * * 2", daysAhead: 0, reelKind: "classic", enabled: always },
@@ -44,6 +44,9 @@ export const SOCIAL_JOBS: SocialJob[] = [
   // Once a year on 30 October: horror screenings on Halloween and 1 November.
   // maxPosts 2, since Thursday's weekend reel may already cover that range.
   { platform: "instagram_reel", format: "Reel · Halloween w kinie", cron: process.env.IG_REEL_HALLOWEEN_CRON || "30 18 30 10 *", daysAhead: 0, maxPosts: 2, reelKind: "halloween", enabled: always },
+  // Once a year on 9 November: Polish films from 10 to 12 November.
+  // maxPosts 2, since a weekly reel may run on the same day.
+  { platform: "instagram_reel", format: "Reel · 11 listopada w kinie", cron: process.env.IG_REEL_INDEPENDENCE_CRON || "30 18 9 11 *", daysAhead: 0, maxPosts: 2, reelKind: "independence", enabled: always },
   { platform: "instagram_carousel", format: "Karuzela · line-up tygodnia", cron: process.env.IG_CAROUSEL_CRON || "30 11 * * 3", daysAhead: 6, enabled: always },
   { platform: "instagram_story", format: "Relacja IG", cron: process.env.IG_STORY_CRON || "30 8,17 * * *", daysAhead: 1, maxPosts: STORIES_PER_DAY, enabled: always },
   { platform: "facebook_post", format: "Post FB", cron: process.env.FB_POST_CRON || "0 13 * * *", daysAhead: 6, enabled: isFacebookConfigured },
