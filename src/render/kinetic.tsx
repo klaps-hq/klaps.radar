@@ -14,19 +14,17 @@ import { DISPLAY_LINE_HEIGHT, EYEBROW_GAP } from "./template";
 export const W = 1080;
 export const H = 1920;
 
-// Card geometry: the full frame inside one even margin, so the poster runs
-// the whole height under the reel UI instead of leaving a black band on top.
-const MARGIN = 44;
-const CARD = { x: MARGIN, y: MARGIN, width: W - MARGIN * 2, height: H - MARGIN * 2, radius: 18 };
+// Card geometry, as the story template: the card starts below the phone's
+// status bar and the reel's top bar, leaving a black band on top.
+const CARD = { x: 44, y: 150, width: W - 88, height: H - 150 - 56, radius: 18 };
 const PAD = 56;
 // Reel UI: the top bar (~270 px), the username and a short caption at the
-// bottom, and the action rail on the right of the lower half. As in the
-// post template the text block sits low on the card so the poster stays
+// bottom, and the action rail on the right of the lower half. The header
+// sits in the card's top corners just below the top bar. As in the post
+// template the text block sits low on the card so the poster stays
 // visible, but it ends ~440 px above the bottom edge (clear of the
 // username/caption lines) and stops short of the action rail on the right.
 const HEADER_TOP = 300;
-// The Halloween reel keeps its header in the card's top corners.
-const HALLOWEEN_HEADER_TOP = 96;
 const BLOCK_BOTTOM = 1480;
 const BLOCK_RIGHT = 250;
 
@@ -147,13 +145,11 @@ const CardBase = ({
   meta,
   dim = 0,
   header = true,
-  headerTop = HEADER_TOP,
 }: {
   imageUrl: string | null;
   meta?: string; // header right: counter and city
   dim?: number;
   header?: boolean;
-  headerTop?: number;
 }) => (
   <div
     style={{
@@ -195,10 +191,9 @@ const CardBase = ({
             width: CARD.width,
             height: CARD.height,
             borderRadius: CARD.radius,
-            // A soft band behind the header (the poster now runs to the top,
-            // often with its own title art there), dark again only over the
-            // lower part where the text block sits, so most of the poster stays clear.
-            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.55 + dim}) 0%, rgba(0,0,0,${0.35 + dim}) 12%, rgba(0,0,0,${0.05 + dim}) 22%, rgba(0,0,0,${0.05 + dim}) 45%, rgba(0,0,0,${0.55 + dim / 2}) 60%, rgba(0,0,0,0.9) 73%, rgba(0,0,0,0.96) 100%)`,
+            // Light at the top for the header, dark only over the lower part
+            // where the text block sits, so most of the poster stays clear.
+            backgroundImage: `linear-gradient(180deg, rgba(0,0,0,${0.45 + dim}) 0%, rgba(0,0,0,${0.05 + dim}) 14%, rgba(0,0,0,${0.05 + dim}) 42%, rgba(0,0,0,${0.55 + dim / 2}) 58%, rgba(0,0,0,0.9) 72%, rgba(0,0,0,0.96) 100%)`,
           }}
         />
       )}
@@ -209,7 +204,7 @@ const CardBase = ({
         position: "absolute",
         left: CARD.x + PAD,
         right: CARD.x + PAD,
-        top: headerTop,
+        top: HEADER_TOP,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -253,7 +248,7 @@ export const hookScene = (
 // card in the accent, the line-up's posters fanned out below it, and the
 // dates in the usual text block. The frame flickers as it opens.
 const HALLOWEEN_SIZE = 206;
-const STRIP_TOP = 500;
+const STRIP_TOP = 640;
 export const STRIP_POSTER = { width: 250, height: 375 };
 // Posters overlap so five fit the card's width; odd ones sit lower.
 const STRIP_STEP = Math.floor((CARD.width - PAD * 2 - STRIP_POSTER.width) / 4);
@@ -280,14 +275,14 @@ const HalloweenCover = ({ posters }: { posters: (string | null)[] }) => (
         border: "1px solid rgba(255,255,255,0.12)",
       }}
     />
-    <div style={{ position: "absolute", left: CARD.x + PAD, top: HALLOWEEN_HEADER_TOP, display: "flex" }}>
+    <div style={{ position: "absolute", left: CARD.x + PAD, top: HEADER_TOP, display: "flex" }}>
       <Logo size={36} />
     </div>
     <span
       style={{
         position: "absolute",
         left: CARD.x + PAD - 6,
-        top: HALLOWEEN_HEADER_TOP + 70,
+        top: HEADER_TOP + 70,
         fontFamily: "Anton",
         fontSize: HALLOWEEN_SIZE,
         lineHeight: 1,
@@ -352,7 +347,7 @@ export const cardScene = (
     start,
     end,
     textAt: start + TEXT_DELAY_S,
-    base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} headerTop={theme ? HALLOWEEN_HEADER_TOP : HEADER_TOP} />,
+    base: <CardBase imageUrl={imageUrl} meta={`${index + 1}/${total} · ${cinema.city.name}`} />,
     lines: [
       <Eyebrow key="e" text={eyebrow} theme={theme} />,
       <Title key="t" text={movie.title} size={titleSize(movie.title)} />,
