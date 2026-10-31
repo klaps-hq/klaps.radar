@@ -222,8 +222,19 @@ const CardBase = ({
     </div>
     )}
     {pin && (
-      <div style={{ position: "absolute", right: CARD.x + PAD, top: HEADER_TOP + 64, display: "flex" }}>
-        <PolandMap width={MINI_MAP_WIDTH} dot={0.04} dotColor="rgba(255,255,255,0.5)">
+      // A dark plate under the map keeps it readable on bright posters.
+      <div
+        style={{
+          position: "absolute",
+          right: CARD.x + PAD,
+          top: HEADER_TOP + 56,
+          display: "flex",
+          padding: 18,
+          borderRadius: 16,
+          backgroundColor: "rgba(0,0,0,0.62)",
+        }}
+      >
+        <PolandMap width={MINI_MAP_WIDTH} dot={0.034} dotColor="rgba(255,255,255,0.55)">
           {Pin({ pin, r: 0.22 })}
         </PolandMap>
       </div>

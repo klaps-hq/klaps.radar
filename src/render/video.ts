@@ -341,10 +341,11 @@ export const renderLineupReel = async (
 ): Promise<Buffer> => {
   const { theme } = options;
   const tone = (url: string | null) => (theme === "halloween" ? warmDuotone(url) : url);
-  // Themed reels show film stills: posters often carry titles and credits
-  // that clash with the card's own type. Posters remain the fallback.
+  // The Halloween reel shows film stills under its duotone. The 11 November
+  // reel keeps posters: stills of older Polish films are often grainy TV
+  // grabs that look poor full-screen. Posters remain the fallback.
   const art = async (s: Screening, box: { width: number; height: number }) =>
-    (theme ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
+    (theme === "halloween" ? await fetchPickedArt(s.movie, "still", box) : null) ?? fetchReelPosterUrl(s, box);
   const posters = await Promise.all(lineup.map(async (s) => tone(await art(s, CARD_SIZE))));
   // The Halloween cover shows the whole line-up as a strip.
   const strip = theme === "halloween" ? await Promise.all(lineup.map(async (s) => tone(await art(s, STRIP_POSTER)))) : [];
