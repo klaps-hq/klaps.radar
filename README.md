@@ -80,16 +80,17 @@ The container is a long-running scheduler (`src/scripts/cron.ts`, [croner](https
 | --------------- | ------------------- | ---------------- | ----------- |
 | Instagram story | `IG_STORY_CRON`     | `30 8,17 * * *`  | 8:30, 17:30 |
 | Facebook story  | `FB_STORY_CRON`     | `45 8,17 * * *`  | 8:45, 17:45 |
-| Instagram post  | `IG_POST_CRON`      | `30 11 * * 0,1,5` | Mon, Fri, Sun 11:30 |
+| Instagram post  | `IG_POST_CRON`      | `30 11 * * 0,1`  | Mon, Sun 11:30 |
+| Instagram post (Friday) | `IG_POST_FRIDAY_CRON` | `30 15 * * 5` | Fri 15:30 |
 | Reel "Klasyka tygodnia" | `IG_REEL_CLASSIC_CRON` | `30 18 * * 2` | Tue 18:30 (an older film this week, or a premiere anniversary) |
-| Reel "Weekend w kinie" | `IG_REEL_WEEKEND_CRON` | `30 18 * * 4` | Thu 18:30 (line-up Fri-Sun) |
+| Reel "Weekend w kinie" | `IG_REEL_WEEKEND_CRON` | `0 16 * * 4` | Thu 16:00 (line-up Fri-Sun) |
 | Reel "Seans na niedzielę" | `IG_REEL_SUNDAY_CRON` | `30 18 * * 6` | Sat 18:30 (one film on Sunday) |
 | Reel "Halloween w kinie" | `IG_REEL_HALLOWEEN_CRON` | `30 18 30 10 *` | 30 Oct 18:30, yearly (horror line-up for 31 Oct and 1 Nov, Halloween theme) |
-| Instagram carousel | `IG_CAROUSEL_CRON` | `30 11 * * 3`  | Wed 11:30 (weekly line-up) |
+| Instagram carousel | `IG_CAROUSEL_CRON` | `15 12 * * 3`  | Wed 12:15 (weekly line-up) |
 | Facebook post   | `FB_POST_CRON`      | `0 13 * * *`     | 13:00       |
 | Threads post    | `THREADS_POST_CRON` | `30 18 * * *`    | 18:30       |
 
-`STORIES_PER_DAY` (default 2) is sent to the candidate API as `maxPosts` and must match the number of firing times in the story cron expressions. `PUBLISH_JITTER_MINUTES` (default 0) delays every job by a random 0..N minutes so publications do not land at the exact same minute every day.
+`STORIES_PER_DAY` (default 2) is sent to the candidate API as `maxPosts` and must match the number of firing times in the story cron expressions. The Wednesday, Thursday and Friday feed slots follow the follower activity windows from Instagram insights (Wed 12-15, Thu 15-18, Fri 15-18). `PUBLISH_JITTER_MINUTES` (default 0) delays every job by a random 0..N minutes so publications do not land at the exact same minute every day.
 
 ## Getting Started
 
