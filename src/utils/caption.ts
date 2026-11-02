@@ -3,7 +3,7 @@ import {
   formatPolishDate,
   splitScreeningDate,
   todayInPoland,
-  truncateText,
+  truncateSentences,
 } from "./format";
 import type { Screening } from "../types/types";
 
@@ -108,11 +108,18 @@ export const buildCarouselCaption = (
   ].join("\n");
 };
 
+// Longest synopsis in a caption. Feed captions show two lines before "more",
+// so this only keeps the caption readable; the cut is on a sentence.
+const DESCRIPTION_MAX = 600;
+// Below this a synopsis would be a stub, so it is left out.
+const DESCRIPTION_MIN = 80;
+
 // Caption for a single screening (posts, Facebook, Threads, single-film
 // reels): hook, title, when and where, synopsis, call to action, hashtags.
+// With maxLength the synopsis shrinks (by whole sentences) to fit it.
 export const buildCaption = (
   screening: Screening,
-  options?: { hashtags?: boolean; mentionCinema?: boolean }
+  options?: { hashtags?: boolean; mentionCinema?: boolean; maxLength?: number }
 ): string => {
   const { movie, cinema } = screening;
   const { date, time } = splitScreeningDate(screening.date);
@@ -122,18 +129,28 @@ export const buildCaption = (
       ? `${cinema.name} (@${cinema.instagramUsername})`
       : cinema.name;
 
-  return [
+  const head = [
     buildHook(screening),
     "",
     `${movie.title} (${movie.productionYear})`,
     `${formatPolishDate(date)}${time ? `, godz. ${time}` : ""}`,
     `${cinemaName}, ${cinema.street}, ${cinema.city.name}`,
-    ...(movie.description
-      ? ["", truncateText(movie.description, 350)]
-      : []),
+  ];
+  const tail = [
     "",
     "Oznacz osobę, z którą chcesz iść na ten seans.",
     "Pełny repertuar kin studyjnych znajdziesz na klaps.space",
     ...(options?.hashtags === false ? [] : ["", buildHashtags(screening)]),
-  ].join("\n");
+  ];
+
+  // Two newlines join the synopsis to the rest.
+  const room = options?.maxLength
+    ? options.maxLength - [...head, ...tail].join("\n").length - 2
+    : DESCRIPTION_MAX;
+  const description = movie.description
+    ? truncateSentences(movie.description, Math.min(DESCRIPTION_MAX, room))
+    : "";
+  const synopsis = description && room >= DESCRIPTION_MIN ? ["", description] : [];
+
+  return [...head, ...synopsis, ...tail].join("\n");
 };
