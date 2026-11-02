@@ -42,6 +42,36 @@ export const truncateText = (text: string, maxChars: number): string => {
   return `${cut.slice(0, lastSpace > 0 ? lastSpace : maxChars).trimEnd()}…`;
 };
 
+// Abbreviations whose dot does not end a sentence ("m.in. Kraków", "r.").
+const ABBREVIATIONS = new Set(["r", "m.in", "np", "tzw", "dr", "św", "ok", "wg", "im", "ul", "godz", "tj", "prof", "inż", "gen", "ks", "pt"]);
+
+// Keeps as many whole sentences as fit, so a synopsis never stops
+// mid-thought; only a first sentence longer than the limit is cut at a word
+// boundary with an ellipsis. A text that already ends in an ellipsis (a
+// synopsis cut at the source) loses its unfinished last sentence.
+export const truncateSentences = (text: string, maxChars: number): string => {
+  const trimmed = text.trim();
+  const unfinished = trimmed.match(/(\.\.\.|…)$/)?.[0];
+  if (!unfinished && trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  const limit = unfinished ? Math.min(maxChars, trimmed.length - unfinished.length - 1) : maxChars;
+
+  let end = 0;
+  // A sentence ends on . ! ? or … (optionally closed by a quote or bracket)
+  // followed by whitespace and a capital letter or the end of the text.
+  for (const match of trimmed.matchAll(/[.!?…]["”»)]?(?=\s+["„«(]?\p{Lu}|\s*$)/gu)) {
+    const stop = match.index + match[0].length;
+    if (stop > limit) break;
+    // "Johna G. Avildsena", "w 1976 r. Rocky": initials and abbreviations.
+    const word = trimmed.slice(0, match.index).split(/\s/).pop() ?? "";
+    if (match[0][0] === "." && (/^\p{Lu}$/u.test(word) || ABBREVIATIONS.has(word.toLowerCase()))) continue;
+    end = stop;
+  }
+  if (end > 0) return trimmed.slice(0, end);
+  return trimmed.length <= maxChars ? trimmed : truncateText(trimmed, maxChars);
+};
+
 export const formatDuration = (minutes: number | null): string | null => {
   if (!minutes) {
     return null;
