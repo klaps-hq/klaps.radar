@@ -22,7 +22,6 @@ import {
   reserveCandidate,
 } from "./utils/candidate";
 import { FEED_PLATFORMS, recentFeedMovies, recordFeedMovies } from "./utils/feed-history";
-import { truncateText } from "./utils/format";
 import { pickWeeklyLineup } from "./utils/lineup";
 
 // Fewer than this and the weekly carousel is skipped for the week.
@@ -215,8 +214,8 @@ export const renderSocialMedia = async (
       : platform === "threads_post"
         ? // Threads caps post text at 500 characters and honours only a
           // single tag per post, so hashtags would be dead weight that pushes
-          // the caption over the limit.
-          truncateText(buildCaption(candidate, { hashtags: false }), 490)
+          // the caption over the limit. The synopsis shrinks to fit.
+          buildCaption(candidate, { hashtags: false, maxLength: 490 })
         : isStory
           ? null
           : buildCaption(candidate, { mentionCinema: true });

@@ -18,7 +18,11 @@ export type MovieArt = {
   // All textless posters, best first (alternate and character posters):
   // portrait shots for the reel.
   textlessPosters: string[];
+  // Stills without text, best first. The DB backdrop counts as one unless
+  // TMDB tags it with a language (a title or logo on it).
   backdrops: string[];
+  // Stills with text, only for movies that have nothing else.
+  textedBackdrops: string[];
 };
 
 const MAX_POSTERS = 3;
@@ -98,6 +102,7 @@ const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
     textlessPoster: null,
     textlessPosters: [],
     backdrops: movie.backdropUrl ? [movie.backdropUrl] : [],
+    textedBackdrops: [],
   };
 
   try {
@@ -117,18 +122,22 @@ const loadMovieArt = async (movie: Screening["movie"]): Promise<MovieArt> => {
       .slice(0, MAX_POSTERS)
       .map((p) => p.file_path);
     const textlessPoster = textlessPosters[0] ?? null;
-    // Textless stills first; the DB backdrop always stays in the set.
-    const stills = best(images.backdrops)
-      .sort((a, b) => Number(a.iso_639_1 !== null) - Number(b.iso_639_1 !== null))
-      .map((b) => b.file_path);
+    // A language tag on a still means text on it (a title or logo).
+    const texted = new Set(
+      images.backdrops.filter((b) => b.iso_639_1 !== null).map((b) => b.file_path)
+    );
+    const stills = best(images.backdrops).map((b) => b.file_path);
     const backdrops = [
       ...new Set([...(movie.backdropUrl ? [movie.backdropUrl] : []), ...stills]),
-    ].slice(0, MAX_BACKDROPS);
+    ]
+      .filter((path) => !texted.has(path))
+      .slice(0, MAX_BACKDROPS);
 
     return {
       textlessPoster,
       textlessPosters,
-      backdrops: backdrops.length ? backdrops : fallback.backdrops,
+      backdrops,
+      textedBackdrops: stills.filter((path) => texted.has(path)).slice(0, MAX_BACKDROPS),
     };
   } catch {
     return fallback;

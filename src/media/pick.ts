@@ -66,14 +66,21 @@ const saveCache = async (cache: Record<string, ArtPick>) => {
   await Bun.write(CACHE_FILE, JSON.stringify(cache, null, 2)).catch(() => {});
 };
 
+const unique = (paths: (string | null)[]): string[] =>
+  paths.filter((p, i, all): p is string => Boolean(p) && all.indexOf(p) === i);
+
+// Textless art only, since text on the image (a title, tagline, credits)
+// collides with the card's own text: the requested kind first, then any
+// textless image. Art with text (the DB poster always has the title) is
+// the last resort for movies that have nothing else.
 const candidatePaths = async (movie: Movie, kind: ArtKind): Promise<string[]> => {
   const art = await getMovieArt(movie);
-  const posters = [...art.textlessPosters, movie.posterUrl];
-  const stills = [...art.backdrops, movie.backdropUrl];
-  const paths = kind === "poster" ? posters : kind === "still" ? stills : [...posters, ...stills];
-  return paths
-    .filter((p, i, all): p is string => Boolean(p) && all.indexOf(p) === i)
-    .slice(0, MAX_CANDIDATES);
+  const posters = art.textlessPosters;
+  const stills = art.backdrops;
+  const wanted = kind === "poster" ? posters : kind === "still" ? stills : [...posters, ...stills];
+  const textless = unique(wanted.length ? wanted : [...posters, ...stills]);
+  const paths = textless.length ? textless : unique([movie.posterUrl, ...art.textedBackdrops]);
+  return paths.slice(0, MAX_CANDIDATES);
 };
 
 type Candidate = { path: string; thumb: Buffer; score: number };
@@ -249,7 +256,8 @@ const decide = async (movie: Movie, kind: ArtKind): Promise<ArtPick | null> => {
   const manual = (overrides as Overrides)[movieKey(movie)]?.[kind];
   if (manual) return { path: manual.path, focus: manual.focus ?? null, source: "manual" };
 
-  const cacheKey = `${movieKey(movie)}|${kind}`;
+  // v2: picks made before art with text was left out are not reused.
+  const cacheKey = `v2|${movieKey(movie)}|${kind}`;
   const cache = await loadCache();
   if (cache[cacheKey]) return cache[cacheKey];
 
